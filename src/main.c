@@ -165,6 +165,10 @@ void decode(FILE *stream) {
 
          InstrType* table = NULL;
 
+         if (pin_wait == 0) {
+            continue;
+         }
+
          if (pin_mreq == 0) {
             if (pin_rd == 0) {
                if (pin_m1 == 0) {
@@ -215,16 +219,14 @@ void decode(FILE *stream) {
                printf("mem??   ");
             }
          } else if (pin_iorq == 0) {
-            if (pin_rd == 0) {
-               if (pin_m1 == 0) {
-                  printf("intack  ");
-               } else {
-                  printf("iord    ");
-               }
+            if (pin_m1 == 0) {
+               printf("intack  ");
+            } else if (pin_rd == 0) {
+               printf("iord    ");
             } else if (pin_wr == 0) {
                printf("iowr    ");
             } else {
-               printf("io??   ");
+               printf("io??    ");
             }
          } else {
             printf("        ");

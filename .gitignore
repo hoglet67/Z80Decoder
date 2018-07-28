@@ -1,0 +1,7 @@
+*~
+#*
+decodez80
+not_in_git/
+*.log
+*.bin
+*.tmp

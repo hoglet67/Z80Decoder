@@ -113,6 +113,422 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 static struct argp argp = { options, parse_opt, args_doc, doc, 0, 0, 0 };
 
 
+
+// ====================================================================
+// Z80 Bus State Machine
+// ====================================================================
+
+
+typedef enum {
+   S_RESTART,
+   S_IDLE,
+   S_PRE1,
+   S_PRE2,
+   S_PREDIS,
+   S_OPCODE,
+   S_POSTDIS,
+   S_IMM1,
+   S_IMM2,
+   S_ROP1,
+   S_ROP2,
+   S_WOP1,
+   S_WOP2
+} Z80StateType;
+
+const char *state_names[] = {
+   "RESTART",
+   "IDLE",
+   "PRE1",
+   "PRE2",
+   "PREDIS",
+   "OPCODE",
+   "POSTDIS",
+   "IMM1",
+   "IMM2",
+   "ROP1",
+   "ROP2",
+   "WOP1",
+   "WOP2"
+};
+
+typedef enum {
+   C_NONE,
+   C_FETCH,
+   C_MEMRD,
+   C_MEMWR,
+   C_IORD,
+   C_IOWR,
+   C_INTACK
+} Z80CycleType;
+
+const char *cycle_names[] = {
+   "NONE",
+   "FETCH",
+   "MEMRD",
+   "MEMWR",
+   "IORD",
+   "IOWR",
+   "INTAC",
+};
+
+typedef enum {
+   ANN_NONE,
+   ANN_WARN,
+   ANN_INSTR,
+   ANN_ROP,
+   ANN_WOP
+} AnnType;
+
+static int instr_len = 0;
+static AnnType ann_dasm;
+static const char *mnemonic = NULL;
+static FormatType format = TYPE_0;
+static int arg_dis = 0;
+static int arg_imm = 0;
+static int arg_read = 0;
+static int arg_write = 0;
+static char *arg_reg = NULL;
+
+static Z80StateType state;
+
+void decode_state(Z80CycleType cycle, Z80CycleType prev_cycle, int bus_data, int pend_data) {
+
+   static int want_dis = 0;
+   static int want_imm = 0;
+   static int want_read = 0;
+   static int want_write = 0;
+   static int want_wr_be = False;
+   static int op_repeat = False;
+   static int op_prefix = 0;
+
+   InstrType *table = NULL;
+   InstrType *instruction = NULL;
+
+   switch (state) {
+
+   case S_RESTART:
+   case S_IDLE:
+      if (prev_cycle == C_FETCH) {
+         want_dis   = 0;
+         want_imm   = 0;
+         want_read  = 0;
+         want_write = 0;
+         want_wr_be = False;
+         op_repeat  = False;
+         arg_dis    = 0;
+         arg_imm    = 0;
+         arg_read   = 0;
+         arg_write  = 0;
+         arg_reg    = "";
+         mnemonic   = "";
+         format     = TYPE_0;
+         op_prefix  = 0;
+         instr_len  = 0;
+         if (bus_data == 0xCB || bus_data == 0xED || bus_data == 0xDD || bus_data == 0xFD) {
+            state = S_PRE1;
+         } else {
+            state = S_OPCODE;
+         }
+      }
+      break;
+
+   case S_PRE1:
+      if (prev_cycle != C_FETCH) {
+         mnemonic = "Prefix not followed by fetch";
+         ann_dasm = ANN_WARN;
+         state = S_RESTART;
+      } else {
+         op_prefix = pend_data;
+         if (op_prefix == 0xDD || op_prefix == 0xFD) {
+            if (bus_data == 0xCB) {
+               state = S_PRE2;
+               break;
+            }
+            if (bus_data == 0xDD || bus_data == 0xED || bus_data == 0xFD) {
+               state = S_PRE1;
+               break;
+            }
+         }
+         state = S_OPCODE;
+      }
+      break;
+
+   case S_PRE2:
+      if (prev_cycle != C_MEMRD) {
+         mnemonic = "Missing displacement";
+         ann_dasm = ANN_WARN;
+         state = S_RESTART;
+      } else {
+         op_prefix = (op_prefix << 8) | pend_data;
+         state = S_PREDIS;
+      }
+      break;
+
+   case S_PREDIS:
+      if (prev_cycle != C_MEMRD) {
+         mnemonic = "Missing opcode";
+         ann_dasm = ANN_WARN;
+         state = S_RESTART;
+      } else {
+         arg_dis = (char) pend_data; // tread as signed
+         state = S_OPCODE;
+      }
+      break;
+
+   case S_OPCODE:
+      table = table_by_prefix(op_prefix);
+      arg_reg = reg_by_prefix(op_prefix);
+      op_prefix = 0;
+      instruction = &table[pend_data];
+      if (instruction->want_dis < 0) {
+         mnemonic = "Invalid instruction";
+         ann_dasm = ANN_WARN;
+         state = S_RESTART;
+      } else {
+         want_dis   = instruction->want_dis;
+         want_imm   = instruction->want_imm;
+         want_read  = instruction->want_read;
+         want_write = instruction->want_write;
+         op_repeat  = instruction->op_repeat;
+         format     = instruction->format;
+         mnemonic   = instruction->mnemonic;
+         if (want_write < 0) {
+            want_wr_be = True;
+            want_write = -want_write;
+         } else {
+            want_wr_be = False;
+         }
+         if (want_dis > 0) {
+            state = S_POSTDIS;
+         } else if (want_imm > 0) {
+            state = S_IMM1;
+         } else {
+            ann_dasm = ANN_INSTR;
+            if (want_read > 0 && (prev_cycle == C_MEMRD || prev_cycle == C_IORD)) {
+               state = S_ROP1;
+            } else if (want_write > 0 && (prev_cycle == C_MEMWR || prev_cycle == C_IOWR)) {
+               state = S_WOP1;
+            } else {
+               state = S_RESTART;
+            }
+         }
+      }
+      break;
+
+   case S_POSTDIS:
+      arg_dis = (char) pend_data;
+      if (want_imm > 0) {
+         state = S_IMM1;
+      } else {
+         ann_dasm = ANN_INSTR;
+         if (want_read > 0 && (prev_cycle == C_MEMRD || prev_cycle == C_IORD)) {
+            state = S_ROP1;
+         } else if (want_write > 0 && (prev_cycle == C_MEMWR || prev_cycle == C_IOWR)) {
+            state = S_WOP1;
+         } else {
+            state = S_RESTART;
+         }
+      }
+      break;
+
+   case S_IMM1:
+      arg_imm = pend_data;
+      if (want_imm > 1) {
+         state = S_IMM2;
+      } else {
+         ann_dasm = ANN_INSTR;
+         if (want_read > 0 && (prev_cycle == C_MEMRD || prev_cycle == C_IORD)) {
+            state = S_ROP1;
+         } else if (want_write > 0 && (prev_cycle == C_MEMWR || prev_cycle == C_IOWR)) {
+            state = S_WOP1;
+         } else {
+            state = S_RESTART;
+         }
+      }
+      break;
+
+   case S_IMM2:
+      arg_imm |= pend_data << 8;
+      ann_dasm = ANN_INSTR;
+      if (want_read > 0 && (prev_cycle == C_MEMRD || prev_cycle == C_IORD)) {
+         state = S_ROP1;
+      } else if (want_write > 0 && (prev_cycle == C_MEMWR || prev_cycle == C_IOWR)) {
+         state = S_WOP1;
+      } else {
+         state = S_RESTART;
+      }
+      break;
+
+   case S_ROP1:
+      arg_read = pend_data;
+      if (want_read < 2) {
+         mnemonic = "Rd: %02X";
+         ann_dasm = ANN_ROP;
+      }
+      if (want_write > 0) {
+         state = S_WOP1;
+      } else if (want_read > 1) {
+         state = S_ROP2;
+      } else if (op_repeat && (prev_cycle == C_MEMRD || prev_cycle == C_IORD)) {
+         state = S_ROP1;
+      } else {
+         state = S_RESTART;
+      }
+      break;
+
+   case S_ROP2:
+      arg_read |= pend_data << 8;
+      mnemonic = "Rd: %04X";
+      ann_dasm = ANN_ROP;
+      if (want_write > 0 && (prev_cycle == C_MEMWR || prev_cycle == C_IOWR)) {
+         state = S_WOP1;
+      } else {
+         state = S_RESTART;
+      }
+      break;
+
+   case S_WOP1:
+      arg_write = pend_data;
+      if (want_read > 1) {
+         state = S_ROP2;
+      } else if (want_write > 1) {
+         state = S_WOP2;
+      } else {
+         mnemonic = "Wr: %02X";
+         ann_dasm = ANN_WOP;
+         if (want_read > 0 && op_repeat && (prev_cycle == C_MEMRD || prev_cycle == C_IORD)) {
+            state = S_ROP1;
+         } else {
+            state = S_RESTART;
+         }
+      }
+      break;
+
+   case S_WOP2:
+      if (want_wr_be) {
+         arg_write = (arg_write << 8) | pend_data;
+      } else {
+         arg_write |= pend_data << 8;
+      };
+      mnemonic = "Wr: %04X";
+      ann_dasm = ANN_WOP;
+      state = S_RESTART;
+      break;
+      }
+}
+
+
+void decode_cycle_begin() {
+   // for now do nothing
+}
+
+void decode_cycle_end(Z80CycleType prev_cycle, Z80CycleType cycle, int bus_data) {
+   static int pend_data;
+   instr_len += 1;
+   if (cycle == C_INTACK) {
+      printf("*** INTACK ***\n");
+   }
+   decode_state(cycle, prev_cycle, bus_data, pend_data);
+   switch (ann_dasm) {
+   case ANN_INSTR:
+      switch (format) {
+      case TYPE_1:
+         printf(mnemonic, arg_reg);
+         break;
+      case TYPE_2:
+         printf(mnemonic, arg_reg, arg_reg);
+         break;
+      case TYPE_3:
+         printf(mnemonic, arg_imm, arg_reg);
+         break;
+      case TYPE_4:
+         printf(mnemonic, arg_reg, arg_imm);
+         break;
+      case TYPE_5:
+         printf(mnemonic, arg_reg, arg_dis);
+         break;
+      case TYPE_6:
+         printf(mnemonic, arg_reg, arg_dis, arg_imm);
+         break;
+      case TYPE_7:
+         printf(mnemonic, arg_dis + instr_len);
+         break;
+      case TYPE_8:
+         printf(mnemonic, arg_imm);
+         break;
+      default:
+         printf(mnemonic, 0);
+         break;
+      }
+      printf("\n");
+      break;
+   case ANN_ROP:
+      printf(mnemonic, arg_read);
+      printf("\n");
+      break;
+   case ANN_WOP:
+      printf(mnemonic, arg_write);
+      printf("\n");
+      break;
+   default:
+      break;
+   }
+   ann_dasm = ANN_NONE;
+   pend_data = bus_data;
+}
+
+void decode_cycle_trans() {
+   printf("Illegal transition between control states\n");
+}
+
+void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int data) {
+   static Z80CycleType prev_cycle = C_NONE;
+   Z80CycleType cycle = C_NONE;
+   if (mreq == 0) {
+      if (rd == 0) {
+         if (m1 == 0) {
+            cycle = C_FETCH;
+         } else {
+            cycle = C_MEMRD;
+         }
+      } else if (wr == 0) {
+         cycle = C_MEMWR;
+      }
+   } else if (iorq == 0) {
+      if (m1 == 0) {
+         cycle = C_INTACK;
+      } else if (rd == 0) {
+         cycle = C_IORD;
+      } else if (wr == 0) {
+         cycle = C_IOWR;
+      }
+   }
+
+   printf("%5s %d %d %d %d %d %02x\n",
+          cycle_names[cycle],
+          m1, rd, wr, mreq, iorq, data);
+
+   if (cycle != prev_cycle) {
+      if (prev_cycle == C_NONE) {
+         decode_cycle_begin();
+      } else if (cycle == C_NONE) {
+         printf("    before: %s\n", state_names[state]);
+         decode_cycle_end(prev_cycle, cycle, data);
+         printf("     after: %s\n", state_names[state]);
+      } else {
+         decode_cycle_trans();
+      }
+   }
+
+
+
+   prev_cycle = cycle;
+}
+
+
+
+
+
 // ====================================================================
 // Input file processing and bus cycle extraction
 // ====================================================================
@@ -133,15 +549,13 @@ void decode(FILE *stream) {
    // The previous sample of the 16-bit capture (async sampling only)
    uint16_t sample       = -1;
 
+   int m1;
+   int rd;
+   int wr;
+   int mreq;
+   int iorq;
+   int wait;
    int data;
-   int pin_m1;
-   int pin_rd;
-   int pin_wr;
-   int pin_mreq;
-   int pin_iorq;
-   int pin_wait;
-
-   unsigned int prefix = 0;
 
    while ((num = fread(buffer, sizeof(uint16_t), BUFSIZE, stream)) > 0) {
 
@@ -151,96 +565,16 @@ void decode(FILE *stream) {
 
          sample       = *sampleptr++;
 
+         m1   = (sample >> idx_m1  ) & 1;
+         rd   = (sample >> idx_rd  ) & 1;
+         wr   = (sample >> idx_wr  ) & 1;
+         mreq = (sample >> idx_mreq) & 1;
+         iorq = (sample >> idx_iorq) & 1;
+         wait = (sample >> idx_wait) & 1;
          data = (sample >> idx_data) & 255;
-         pin_m1   = (sample >> idx_m1  ) & 1;
-         pin_rd   = (sample >> idx_rd  ) & 1;
-         pin_wr   = (sample >> idx_wr  ) & 1;
-         pin_mreq = (sample >> idx_mreq) & 1;
-         pin_iorq = (sample >> idx_iorq) & 1;
-         pin_wait = (sample >> idx_wait) & 1;
 
+         decode_cycle(m1, rd, wr, mreq, iorq, data);
 
-
-
-
-         InstrType* table = NULL;
-
-         if (pin_wait == 0) {
-            continue;
-         }
-
-         if (pin_mreq == 0) {
-            if (pin_rd == 0) {
-               if (pin_m1 == 0) {
-                  printf("fetch   ");
-
-                  if (prefix == 0) {
-                     if (data == 0xcb || data == 0xdd || data == 0xed || data == 0xfd) {
-                        prefix = data;
-                     } else  {
-                        table = main_instructions;
-                     }
-                  } else if (prefix == 0xcb) {
-                     table = bit_instructions;
-                     prefix = 0;
-                  } else if (prefix == 0xdd) {
-                     if (data == 0xcb) {
-                        prefix = (prefix << 8) | data;
-                     } else {
-                        table = index_instructions;
-                        prefix = 0;
-                     }
-                  } else if (prefix == 0xed) {
-                     table = extended_instructions;
-                     prefix = 0;
-                  } else if (prefix == 0xfd) {
-                     if (data == 0xcb) {
-                        prefix = (prefix << 8) | data;
-                     } else {
-                        table = index_instructions;
-                        prefix = 0;
-                     }
-                  } else if (prefix == 0xddcb) {
-                     table = index_bit_instructions;
-                     prefix = 0;
-                  } else if (prefix == 0xfdcb) {
-                     table = index_bit_instructions;
-                     prefix = 0;
-                  } else {
-                     printf("*** illegal prefix: %x ***\n", prefix);
-                     prefix = 0;
-                  }
-               } else {
-                  printf("memrd   ");
-               }
-            } else if (pin_wr == 0) {
-               printf("memwr   ");
-            } else {
-               printf("mem??   ");
-            }
-         } else if (pin_iorq == 0) {
-            if (pin_m1 == 0) {
-               printf("intack  ");
-            } else if (pin_rd == 0) {
-               printf("iord    ");
-            } else if (pin_wr == 0) {
-               printf("iowr    ");
-            } else {
-               printf("io??    ");
-            }
-         } else {
-            printf("        ");
-         }
-
-         printf("%d %d %d %d %d %d %02x",
-                pin_m1, pin_rd, pin_wr, pin_mreq, pin_iorq, pin_wait, data);
-
-         if (table) {
-            printf(" : %s\n", table[data].fmt);
-            table = NULL;
-         } else {
-            printf("\n");
-         }
       }
    }
 }

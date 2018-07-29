@@ -373,11 +373,12 @@ void decode_state(Z80CycleType cycle, Z80CycleType prev_cycle, int bus_data, int
          mnemonic = "Rd: %02X";
          ann_dasm = ANN_ROP;
       }
-      if (want_write > 0) {
-         state = S_WOP1;
-      } else if (want_read > 1) {
+      if (want_read > 1) {
          state = S_ROP2;
+      } else if (want_write > 0) {
+         state = S_WOP1;
       } else if (op_repeat && (prev_cycle == C_MEMRD || prev_cycle == C_IORD)) {
+         // Repeating ops seem unnecessary
          state = S_ROP1;
       } else {
          state = S_RESTART;
@@ -397,14 +398,16 @@ void decode_state(Z80CycleType cycle, Z80CycleType prev_cycle, int bus_data, int
 
    case S_WOP1:
       arg_write = pend_data;
-      if (want_read > 1) {
-         state = S_ROP2;
-      } else if (want_write > 1) {
+      //if (want_read > 1) {
+      //   state = S_ROP2;
+      //} else
+      if (want_write > 1) {
          state = S_WOP2;
       } else {
          mnemonic = "Wr: %02X";
          ann_dasm = ANN_WOP;
          if (want_read > 0 && op_repeat && (prev_cycle == C_MEMRD || prev_cycle == C_IORD)) {
+            // Repeating ops seem unnecessary
             state = S_ROP1;
          } else {
             state = S_RESTART;
@@ -521,7 +524,7 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int data) {
       }
    }
 
-   printf("%6s %d %d %d %d %d %02x", cycle_names[cycle], m1, rd, wr, mreq, iorq, data);
+   printf("%6s %10s %d %d %d %d %d %02x", cycle_names[cycle], state_names[state], m1, rd, wr, mreq, iorq, data);
 
    if (cycle != C_NONE) {
       bus_data = data;

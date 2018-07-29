@@ -168,7 +168,7 @@ const char *cycle_names[] = {
    "MEMWR",
    "IORD",
    "IOWR",
-   "INTAC",
+   "INTACK",
 };
 
 typedef enum {
@@ -204,9 +204,17 @@ void decode_state(Z80CycleType cycle, Z80CycleType prev_cycle, int bus_data, int
    InstrType *table = NULL;
    InstrType *instruction = NULL;
 
+   //printf("    cycle: %s\n", cycle_names[cycle]);
+   //printf("  p_cycle: %s\n", cycle_names[prev_cycle]);
+   //printf("     data: %08X\n", bus_data);
+   //printf("   p_data: %08X\n", pend_data);
+
    switch (state) {
 
    case S_RESTART:
+      state = S_IDLE;
+      break;
+
    case S_IDLE:
       if (prev_cycle == C_FETCH) {
          want_dis   = 0;
@@ -422,8 +430,7 @@ void decode_cycle_begin() {
    // for now do nothing
 }
 
-void decode_cycle_end(Z80CycleType prev_cycle, Z80CycleType cycle, int bus_data) {
-   static int pend_data;
+void decode_cycle_end(Z80CycleType prev_cycle, Z80CycleType cycle, int pend_data, int bus_data) {
    instr_len += 1;
    if (cycle == C_INTACK) {
       printf("*** INTACK ***\n");
@@ -431,6 +438,7 @@ void decode_cycle_end(Z80CycleType prev_cycle, Z80CycleType cycle, int bus_data)
    decode_state(cycle, prev_cycle, bus_data, pend_data);
    switch (ann_dasm) {
    case ANN_INSTR:
+      printf(" : ");
       switch (format) {
       case TYPE_1:
          printf(mnemonic, arg_reg);
@@ -460,21 +468,28 @@ void decode_cycle_end(Z80CycleType prev_cycle, Z80CycleType cycle, int bus_data)
          printf(mnemonic, 0);
          break;
       }
-      printf("\n");
       break;
    case ANN_ROP:
+      printf(" : ");
       printf(mnemonic, arg_read);
-      printf("\n");
       break;
    case ANN_WOP:
+      printf(" : ");
       printf(mnemonic, arg_write);
-      printf("\n");
+      break;
+   case ANN_WARN:
+      printf(" : ");
+      printf(mnemonic, 0);
       break;
    default:
       break;
    }
    ann_dasm = ANN_NONE;
-   pend_data = bus_data;
+   // This seems a rather complex way of jumping two states
+   if (state == S_RESTART) {
+      state = S_IDLE;
+      decode_state(cycle, prev_cycle, bus_data, pend_data);
+   }
 }
 
 void decode_cycle_trans() {
@@ -483,6 +498,8 @@ void decode_cycle_trans() {
 
 void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int data) {
    static Z80CycleType prev_cycle = C_NONE;
+   static int bus_data = 0;
+   static int pend_data = 0;
    Z80CycleType cycle = C_NONE;
    if (mreq == 0) {
       if (rd == 0) {
@@ -504,21 +521,24 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int data) {
       }
    }
 
-   printf("%5s %d %d %d %d %d %02x\n",
-          cycle_names[cycle],
-          m1, rd, wr, mreq, iorq, data);
+   printf("%6s %d %d %d %d %d %02x", cycle_names[cycle], m1, rd, wr, mreq, iorq, data);
 
+   if (cycle != C_NONE) {
+      bus_data = data;
+   }
    if (cycle != prev_cycle) {
       if (prev_cycle == C_NONE) {
          decode_cycle_begin();
       } else if (cycle == C_NONE) {
-         printf("    before: %s\n", state_names[state]);
-         decode_cycle_end(prev_cycle, cycle, data);
-         printf("     after: %s\n", state_names[state]);
+         //printf("    before: %s\n", state_names[state]);
+         decode_cycle_end(prev_cycle, cycle, pend_data, bus_data);
+         pend_data = bus_data;
+         //printf("     after: %s\n", state_names[state]);
       } else {
          decode_cycle_trans();
       }
    }
+   printf("\n");
 
 
 

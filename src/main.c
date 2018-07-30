@@ -521,6 +521,14 @@ void decode_cycle_trans() {
 void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi, int data) {
    static Z80CycleType prev_cycle = C_NONE;
    static int prev_data = 0;
+   static int prev_m1 = 0;
+   static int prev_rd = 0;
+   static int prev_wr = 0;
+   static int prev_mreq = 0;
+   static int prev_iorq = 0;
+   static int prev_wait = 0;
+   static int prev_phi = 0;
+
    Z80CycleType cycle = C_NONE;
    if (mreq == 0) {
       if (rd == 0) {
@@ -542,7 +550,17 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
       }
    }
 
-   printf("%6s %10s %d %d %d %d %d %d %d %02x", cycle_names[cycle], state_names[state], m1, rd, wr, mreq, iorq, wait, phi, data);
+   printf("%6s %10s %d %d %d %d %d %d %d %02x",
+          cycle_names[prev_cycle],
+          state_names[state],
+          prev_m1,
+          prev_rd,
+          prev_wr,
+          prev_mreq,
+          prev_iorq,
+          prev_wait,
+          prev_phi,
+          prev_data);
 
    if (cycle != prev_cycle) {
       if (prev_cycle == C_NONE) {
@@ -557,7 +575,14 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
    }
    printf("\n");
    prev_cycle = cycle;
-   prev_data = data;
+   prev_m1    = m1;
+   prev_rd    = rd;
+   prev_wr    = wr;
+   prev_mreq  = mreq;
+   prev_iorq  = iorq;
+   prev_wait  = wait;
+   prev_phi   = phi;
+   prev_data  = data;
 }
 
 // ====================================================================

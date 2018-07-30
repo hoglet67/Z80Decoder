@@ -34,6 +34,7 @@ static struct argp_option options[] = {
    { "mreq",           5, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for mreq"},
    { "iorq",           6, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for iorq"},
    { "wait",           7, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for wait"},
+   { "phi",            8, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for phi"},
    { 0 }
 };
 
@@ -45,6 +46,7 @@ struct arguments {
    int idx_mreq;
    int idx_iorq;
    int idx_wait;
+   int idx_phi;
    char *filename;
 } arguments;
 
@@ -96,6 +98,13 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
          arguments->idx_wait = -1;
       }
       break;
+   case   8:
+      if (arg && strlen(arg) > 0) {
+         arguments->idx_phi = atoi(arg);
+      } else {
+         arguments->idx_phi = -1;
+      }
+      break;
    case ARGP_KEY_ARG:
       arguments->filename = arg;
       break;
@@ -120,6 +129,7 @@ static struct argp argp = { options, parse_opt, args_doc, doc, 0, 0, 0 };
 
 
 typedef enum {
+   S_ERROR,
    S_RESTART,
    S_IDLE,
    S_PRE1,
@@ -136,6 +146,7 @@ typedef enum {
 } Z80StateType;
 
 const char *state_names[] = {
+   "ERROR",
    "RESTART",
    "IDLE",
    "PRE1",
@@ -211,6 +222,7 @@ void decode_state(Z80CycleType cycle, Z80CycleType prev_cycle, int bus_data, int
 
    switch (state) {
 
+   case S_ERROR:
    case S_RESTART:
       state = S_IDLE;
       break;
@@ -237,6 +249,8 @@ void decode_state(Z80CycleType cycle, Z80CycleType prev_cycle, int bus_data, int
          } else {
             state = S_OPCODE;
          }
+      } else if (prev_cycle != C_NONE) {
+         state = S_ERROR;
       }
       break;
 
@@ -481,7 +495,7 @@ void decode_cycle_end(Z80CycleType prev_cycle, Z80CycleType cycle, int pend_data
       printf(mnemonic, arg_write);
       break;
    case ANN_WARN:
-      printf(" : ");
+      printf(" : WARNING: ");
       printf(mnemonic, 0);
       break;
    default:
@@ -489,7 +503,10 @@ void decode_cycle_end(Z80CycleType prev_cycle, Z80CycleType cycle, int pend_data
    }
    ann_dasm = ANN_NONE;
    // This seems a rather complex way of jumping two states
-   if (state == S_RESTART) {
+   if (state == S_ERROR) {
+      state = S_IDLE;
+      printf(" : error");
+   } else if (state == S_RESTART) {
       state = S_IDLE;
       decode_state(cycle, prev_cycle, bus_data, pend_data);
    }
@@ -499,7 +516,7 @@ void decode_cycle_trans() {
    printf("Illegal transition between control states\n");
 }
 
-void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int data) {
+void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi, int data) {
    static Z80CycleType prev_cycle = C_NONE;
    static int bus_data = 0;
    static int pend_data = 0;
@@ -524,7 +541,7 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int data) {
       }
    }
 
-   printf("%6s %10s %d %d %d %d %d %02x", cycle_names[cycle], state_names[state], m1, rd, wr, mreq, iorq, data);
+   printf("%6s %10s %d %d %d %d %d %d %d %02x", cycle_names[cycle], state_names[state], m1, rd, wr, mreq, iorq, wait, phi, data);
 
    if (cycle != C_NONE) {
       bus_data = data;
@@ -566,6 +583,7 @@ void decode(FILE *stream) {
    int idx_mreq  = arguments.idx_mreq;
    int idx_iorq  = arguments.idx_iorq;
    int idx_wait  = arguments.idx_wait;
+   int idx_phi   = arguments.idx_phi ;
 
    int num;
 
@@ -578,6 +596,7 @@ void decode(FILE *stream) {
    int mreq;
    int iorq;
    int wait;
+   int phi;
    int data;
 
    while ((num = fread(buffer, sizeof(uint16_t), BUFSIZE, stream)) > 0) {
@@ -594,9 +613,13 @@ void decode(FILE *stream) {
          mreq = (sample >> idx_mreq) & 1;
          iorq = (sample >> idx_iorq) & 1;
          wait = (sample >> idx_wait) & 1;
+         phi  = (sample >> idx_phi ) & 1;
          data = (sample >> idx_data) & 255;
 
-         decode_cycle(m1, rd, wr, mreq, iorq, data);
+//         if (wait == 0) {
+//            continue;
+//         }
+         decode_cycle(m1, rd, wr, mreq, iorq, wait, phi, data);
 
       }
    }
@@ -609,12 +632,13 @@ void decode(FILE *stream) {
 
 int main(int argc, char *argv[]) {
    arguments.idx_data         =  0;
-   arguments.idx_m1          =  8;
-   arguments.idx_rd         =  9;
-   arguments.idx_wr          = 10;
+   arguments.idx_m1           =  8;
+   arguments.idx_rd           =  9;
+   arguments.idx_wr           = 10;
    arguments.idx_mreq         = 11;
-   arguments.idx_iorq          = 12;
-   arguments.idx_wait          = 13;
+   arguments.idx_iorq         = 12;
+   arguments.idx_wait         = 13;
+   arguments.idx_phi          = 15;
    arguments.filename         = NULL;
 
    argp_parse(&argp, argc, argv, 0, 0, &arguments);

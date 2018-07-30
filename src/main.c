@@ -203,6 +203,8 @@ void decode_state(Z80CycleType cycle, int data) {
    InstrType *table = NULL;
    InstrType *instruction = NULL;
 
+   instr_len += 1;
+
    switch (state) {
 
    case S_IDLE:
@@ -220,7 +222,7 @@ void decode_state(Z80CycleType cycle, int data) {
       mnemonic    = "";
       format      = TYPE_0;
       op_prefix   = 0;
-      instr_len   = 0;
+      instr_len   = 1;
       state       = S_OPCODE;
       // And fall through to S_OPCODE
 
@@ -461,11 +463,10 @@ void decode_cycle_begin() {
 }
 
 void decode_cycle_end(Z80CycleType cycle, int data) {
-   instr_len += 1;
    decode_state(cycle, data);
    switch (ann_dasm) {
    case ANN_INSTR:
-      printf(" : ");
+      printf(" : %d : ", instr_len);
       switch (format) {
       case TYPE_1:
          printf(mnemonic, arg_reg);

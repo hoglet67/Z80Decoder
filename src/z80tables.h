@@ -18,7 +18,7 @@ typedef struct {
    int want_imm;
    int want_read;
    int want_write;
-   int op_repeat;
+   int conditional;
    FormatType format;
    const char *mnemonic;
 } InstrType;

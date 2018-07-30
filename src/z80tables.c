@@ -248,70 +248,70 @@ InstrType main_instructions[256] = {
     {0, 0, 1, 0, False, TYPE_0, "CP (HL)"},           // 0xBE
     {0, 0, 0, 0, False, TYPE_0, "CP A"},              // 0xBF
 
-    {0, 0, 2, 0, False, TYPE_0, "RET NZ"},            // 0xC0
+    {0, 0, 2, 0, True,  TYPE_0, "RET NZ"},            // 0xC0
     {0, 0, 2, 0, False, TYPE_0, "POP BC"},            // 0xC1
     {0, 2, 0, 0, False, TYPE_8, "JP NZ,%04Xh"},       // 0xC2
     {0, 2, 0, 0, False, TYPE_8, "JP %04Xh"},          // 0xC3
-    {0, 2, 0,-2, False, TYPE_8, "CALL NZ,%04Xh"},     // 0xC4
+    {0, 2, 0,-2, True,  TYPE_8, "CALL NZ,%04Xh"},     // 0xC4
     {0, 0, 0,-2, False, TYPE_0, "PUSH BC"},           // 0xC5
     {0, 1, 0, 0, False, TYPE_8, "ADD A,%02Xh"},       // 0xC6
     {0, 0, 0,-2, False, TYPE_0, "RST 00h"},           // 0xC7
-    {0, 0, 2, 0, False, TYPE_0, "RET Z"},             // 0xC8
+    {0, 0, 2, 0, True,  TYPE_0, "RET Z"},             // 0xC8
     {0, 0, 2, 0, False, TYPE_0, "RET"},               // 0xC9
     {0, 2, 0, 0, False, TYPE_8, "JP Z,%04Xh"},        // 0xCA
     UNDEFINED,                                        // 0xCB
-    {0, 2, 0,-2, False, TYPE_8, "CALL Z,%04Xh"},      // 0xCC
+    {0, 2, 0,-2, True,  TYPE_8, "CALL Z,%04Xh"},      // 0xCC
     {0, 2, 0,-2, False, TYPE_8, "CALL %04Xh"},        // 0xCD
     {0, 1, 0, 0, False, TYPE_8, "ADC A,%02Xh"},       // 0xCE
     {0, 0, 0,-2, False, TYPE_0, "RST 08h"},           // 0xCF
 
-    {0, 0, 2, 0, False, TYPE_0, "RET NC"},            // 0xD0
+    {0, 0, 2, 0, True,  TYPE_0, "RET NC"},            // 0xD0
     {0, 0, 2, 0, False, TYPE_0, "POP DE"},            // 0xD1
     {0, 2, 0, 0, False, TYPE_8, "JP NC,%04Xh"},       // 0xD2
     {0, 1, 0, 1, False, TYPE_8, "OUT (%02Xh),A"},     // 0xD3
-    {0, 2, 0,-2, False, TYPE_8, "CALL NC,%04Xh"},     // 0xD4
+    {0, 2, 0,-2, True,  TYPE_8, "CALL NC,%04Xh"},     // 0xD4
     {0, 0, 0,-2, False, TYPE_0, "PUSH DE"},           // 0xD5
     {0, 1, 0, 0, False, TYPE_8, "SUB %02Xh"},         // 0xD6
     {0, 0, 0,-2, False, TYPE_0, "RST 10h"},           // 0xD7
-    {0, 0, 2, 0, False, TYPE_0, "RET C"},             // 0xD8
+    {0, 0, 2, 0, True,  TYPE_0, "RET C"},             // 0xD8
     {0, 0, 0, 0, False, TYPE_0, "EXX"},               // 0xD9
     {0, 2, 0, 0, False, TYPE_8, "JP C,%04Xh"},        // 0xDA
     {0, 1, 1, 0, False, TYPE_8, "IN A,(%02Xh)"},      // 0xDB
-    {0, 2, 0,-2, False, TYPE_8, "CALL C,%04Xh"},      // 0xDC
+    {0, 2, 0,-2, True,  TYPE_8, "CALL C,%04Xh"},      // 0xDC
     UNDEFINED,                                        // 0xDD
     {0, 1, 0, 0, False, TYPE_8, "SBC A,%02Xh"},       // 0xDE
     {0, 0, 0,-2, False, TYPE_0, "RST 18h"},           // 0xDF
 
-    {0, 0, 2, 0, False, TYPE_0, "RET PO"},            // 0xE0
+    {0, 0, 2, 0, True,  TYPE_0, "RET PO"},            // 0xE0
     {0, 0, 2, 0, False, TYPE_0, "POP HL"},            // 0xE1
     {0, 2, 0, 0, False, TYPE_8, "JP PO,%04Xh"},       // 0xE2
     {0, 0, 2, 2, False, TYPE_0, "EX (SP),HL"},        // 0xE3
-    {0, 2, 0,-2, False, TYPE_8, "CALL PO,%04Xh"},     // 0xE4
+    {0, 2, 0,-2, True,  TYPE_8, "CALL PO,%04Xh"},     // 0xE4
     {0, 0, 0,-2, False, TYPE_0, "PUSH HL"},           // 0xE5
     {0, 1, 0, 0, False, TYPE_8, "AND %02Xh"},         // 0xE6
     {0, 0, 0,-2, False, TYPE_0, "RST 20h"},           // 0xE7
-    {0, 0, 2, 0, False, TYPE_0, "RET PE"},            // 0xE8
+    {0, 0, 2, 0, True,  TYPE_0, "RET PE"},            // 0xE8
     {0, 0, 0, 0, False, TYPE_0, "JP (HL)"},           // 0xE9
     {0, 2, 0, 0, False, TYPE_8, "JP PE,%04Xh"},       // 0xEA
     {0, 0, 0, 0, False, TYPE_0, "EX DE,HL"},          // 0xEB
-    {0, 2, 0,-2, False, TYPE_8, "CALL PE,%04Xh"},     // 0xEC
+    {0, 2, 0,-2, True,  TYPE_8, "CALL PE,%04Xh"},     // 0xEC
     UNDEFINED,                                        // 0xED
     {0, 1, 0, 0, False, TYPE_8, "XOR %02Xh"},         // 0xEE
     {0, 0, 0,-2, False, TYPE_0, "RST 28h"},           // 0xEF
 
-    {0, 0, 2, 0, False, TYPE_0, "RET P"},             // 0xF0
+    {0, 0, 2, 0, True,  TYPE_0, "RET P"},             // 0xF0
     {0, 0, 2, 0, False, TYPE_0, "POP AF"},            // 0xF1
     {0, 2, 0, 0, False, TYPE_8, "JP P,%04Xh"},        // 0xF2
     {0, 0, 0, 0, False, TYPE_0, "DI"},                // 0xF3
-    {0, 2, 0,-2, False, TYPE_8, "CALL P,%04Xh"},      // 0xF4
+    {0, 2, 0,-2, True,  TYPE_8, "CALL P,%04Xh"},      // 0xF4
     {0, 0, 0,-2, False, TYPE_0, "PUSH AF"},           // 0xF5
     {0, 1, 0, 0, False, TYPE_8, "OR %02Xh"},          // 0xF6
     {0, 0, 0,-2, False, TYPE_0, "RST 30h"},           // 0xF7
-    {0, 0, 2, 0, False, TYPE_0, "RET M"},             // 0xF8
+    {0, 0, 2, 0, True,  TYPE_0, "RET M"},             // 0xF8
     {0, 0, 0, 0, False, TYPE_0, "LD SP,HL"},          // 0xF9
     {0, 2, 0, 0, False, TYPE_8, "JP M,%04Xh"},        // 0xFA
     {0, 0, 0, 0, False, TYPE_0, "EI"},                // 0xFB
-    {0, 2, 0,-2, False, TYPE_8, "CALL M,%04Xh"},      // 0xFC
+    {0, 2, 0,-2, True,  TYPE_8, "CALL M,%04Xh"},      // 0xFC
     UNDEFINED,                                        // 0xFD
     {0, 1, 0, 0, False, TYPE_8, "CP %02Xh"},          // 0xFE
     {0, 0, 0,-2, False, TYPE_0, "RST 38h"}            // 0xFF
@@ -506,18 +506,18 @@ InstrType extended_instructions[256] = {
     UNDEFINED,                                        // 0xAE
     UNDEFINED,                                        // 0xAF
 
-    {0, 0, 1, 1, True,  TYPE_0, "LDIR"},              // 0xB0
-    {0, 0, 1, 0, True,  TYPE_0, "CPIR"},              // 0xB1
-    {0, 0, 1, 1, True,  TYPE_0, "INIR"},              // 0xB2
-    {0, 0, 1, 1, True,  TYPE_0, "OTIR"},              // 0xB3
+    {0, 0, 1, 1, False, TYPE_0, "LDIR"},              // 0xB0
+    {0, 0, 1, 0, False, TYPE_0, "CPIR"},              // 0xB1
+    {0, 0, 1, 1, False, TYPE_0, "INIR"},              // 0xB2
+    {0, 0, 1, 1, False, TYPE_0, "OTIR"},              // 0xB3
     UNDEFINED,                                        // 0xB4
     UNDEFINED,                                        // 0xB5
     UNDEFINED,                                        // 0xB6
     UNDEFINED,                                        // 0xB7
-    {0, 0, 1, 1, True,  TYPE_0, "LDDR"},              // 0xB8
-    {0, 0, 1, 0, True,  TYPE_0, "CPDR"},              // 0xB9
-    {0, 0, 1, 1, True,  TYPE_0, "INDR"},              // 0xBA
-    {0, 0, 1, 1, True,  TYPE_0, "OTDR"},              // 0xBB
+    {0, 0, 1, 1, False, TYPE_0, "LDDR"},              // 0xB8
+    {0, 0, 1, 0, False, TYPE_0, "CPDR"},              // 0xB9
+    {0, 0, 1, 1, False, TYPE_0, "INDR"},              // 0xBA
+    {0, 0, 1, 1, False, TYPE_0, "OTDR"},              // 0xBB
     UNDEFINED,                                        // 0xBC
     UNDEFINED,                                        // 0xBD
     UNDEFINED,                                        // 0xBE

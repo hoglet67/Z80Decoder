@@ -134,8 +134,7 @@ typedef enum {
    S_ROP1,
    S_ROP2,
    S_WOP1,
-   S_WOP2,
-   S_ERROR
+   S_WOP2
 } Z80StateType;
 
 const char *state_names[] = {
@@ -148,8 +147,7 @@ const char *state_names[] = {
    "ROP1",
    "ROP2",
    "WOP1",
-   "WOP2",
-   "ERROR",
+   "WOP2"
 };
 
 typedef enum {
@@ -207,10 +205,6 @@ void decode_state(Z80CycleType cycle, int data) {
 
    switch (state) {
 
-   case S_ERROR:
-      state       = S_IDLE;
-      // And fall through to S_IDLE
-
    case S_IDLE:
       want_dis    = 0;
       want_imm    = 0;
@@ -242,7 +236,7 @@ void decode_state(Z80CycleType cycle, int data) {
       if (cycle != ((op_prefix == 0xDDCB || op_prefix == 0xFDCB) ? C_MEMRD : C_FETCH)) {
          mnemonic = "Incorrect cycle type for prefix/opcode";
          ann_dasm = ANN_WARN;
-         state = S_ERROR;
+         state = S_IDLE;
          return;
       }
       if (op_prefix == 0) {
@@ -265,7 +259,7 @@ void decode_state(Z80CycleType cycle, int data) {
       if (instruction->want_dis < 0) {
          mnemonic = "Invalid instruction";
          ann_dasm = ANN_WARN;
-         state = S_ERROR;
+         state = S_IDLE;
          return;
       }
       want_dis    = instruction->want_dis;
@@ -301,7 +295,7 @@ void decode_state(Z80CycleType cycle, int data) {
       if (cycle != C_MEMRD) {
          mnemonic = "Incorrect cycle type for pre-displacement";
          ann_dasm = ANN_WARN;
-         state = S_ERROR;
+         state = S_IDLE;
          return;
       }
       arg_dis = (char) data; // treat as signed
@@ -312,7 +306,7 @@ void decode_state(Z80CycleType cycle, int data) {
       if (cycle != C_MEMRD) {
          mnemonic = "Incorrect cycle type for post displacement";
          ann_dasm = ANN_WARN;
-         state = S_ERROR;
+         state = S_IDLE;
          return;
       }
       arg_dis = (char) data;
@@ -334,7 +328,7 @@ void decode_state(Z80CycleType cycle, int data) {
       if (cycle != C_MEMRD) {
          mnemonic = "Incorrect cycle type for immediate1";
          ann_dasm = ANN_WARN;
-         state = S_ERROR;
+         state = S_IDLE;
          return;
       }
       arg_imm = data;
@@ -356,7 +350,7 @@ void decode_state(Z80CycleType cycle, int data) {
       if (cycle != C_MEMRD) {
          mnemonic = "Incorrect cycle type for immediate2";
          ann_dasm = ANN_WARN;
-         state = S_ERROR;
+         state = S_IDLE;
          return;
       }
       arg_imm |= data << 8;
@@ -383,7 +377,7 @@ void decode_state(Z80CycleType cycle, int data) {
       if (cycle != C_MEMRD && cycle != C_IORD) {
          mnemonic = "Incorrect cycle type for read op1";
          ann_dasm = ANN_WARN;
-         state = S_ERROR;
+         state = S_IDLE;
          return;
       }
       arg_read = data;
@@ -404,7 +398,7 @@ void decode_state(Z80CycleType cycle, int data) {
       if (cycle != C_MEMRD && cycle != C_IORD) {
          mnemonic = "Incorrect cycle type for read op2";
          ann_dasm = ANN_WARN;
-         state = S_ERROR;
+         state = S_IDLE;
          return;
       }
       arg_read |= data << 8;
@@ -430,7 +424,7 @@ void decode_state(Z80CycleType cycle, int data) {
       if (cycle != C_MEMWR && cycle != C_IOWR) {
          mnemonic = "Incorrect cycle type for write op1";
          ann_dasm = ANN_WARN;
-         state = S_ERROR;
+         state = S_IDLE;
          return;
       }
       arg_write = data;
@@ -447,7 +441,7 @@ void decode_state(Z80CycleType cycle, int data) {
       if (cycle != C_MEMWR && cycle != C_IOWR) {
          mnemonic = "Incorrect cycle type for write op2";
          ann_dasm = ANN_WARN;
-         state = S_ERROR;
+         state = S_IDLE;
          return;
       }
       if (want_wr_be) {
@@ -518,10 +512,6 @@ void decode_cycle_end(Z80CycleType cycle, int data) {
       break;
    }
    ann_dasm = ANN_NONE;
-   if (state == S_ERROR) {
-      state = S_IDLE;
-      printf(" : error");
-   }
 }
 
 void decode_cycle_trans() {

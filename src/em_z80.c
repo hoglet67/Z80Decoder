@@ -168,6 +168,69 @@ static const unsigned char partab[256] = {
    1,0,0,1,0,1,1,0,0,1,1,0,1,0,0,1,
 };
 
+static void write_reg_pair(int id, int value) {
+   switch(id) {
+   case 0:
+      if (value >= 0) {
+         reg_b = (value >> 8) & 0xff;
+         reg_c = value & 0xff;
+      } else {
+         reg_b = -1;
+         reg_c = -1;
+      }
+      break;
+   case 1:
+      if (value >= 0) {
+         reg_d = (value >> 8) & 0xff;
+         reg_e = value & 0xff;
+      } else {
+         reg_d = -1;
+         reg_e = -1;
+      }
+      break;
+   case 2:
+      if (value >= 0) {
+         reg_h = (value >> 8) & 0xff;
+         reg_l = value & 0xff;
+      } else {
+         reg_h = -1;
+         reg_l = -1;
+      }
+      break;
+   case 3:
+      reg_sp = value;
+      break;
+   }
+}
+
+static int read_reg_pair(int id) {
+   switch(id) {
+   case 0:
+      if (reg_b >= 0 && reg_c >= 0) {
+         return (reg_b << 8) | reg_c;
+      } else {
+         return -1;
+      }
+      break;
+   case 1:
+      if (reg_d >= 0 && reg_e >= 0) {
+         return (reg_d << 8) | reg_e;
+      } else {
+         return -1;
+      }
+   case 2:
+      if (reg_h >= 0 && reg_l >= 0) {
+         return (reg_h << 8) | reg_l;
+      } else {
+         return -1;
+      }
+   case 3:
+      return reg_sp;
+   }
+   return -1;
+}
+
+
 static void set_sign_zero(int result) {
    flag_s  = (result >> 7) & 1;
    flag_z  = ((result & 0xff) == 0);
@@ -355,7 +418,7 @@ static void op_ex_tos_hl(InstrType *instr) {
 static void op_ex_tos_index(InstrType *instr) {
    // (SP) <=> Index_low; (SP + 1) <=> Index_high
    int *i = IS_IY ? &reg_iy : &reg_ix;
-   if (*i >= 0 && *i != arg_write) {
+   if ((*i) >= 0 && (*i) != arg_write) {
       failflag = 1;
    }
    *i = arg_read;
@@ -370,13 +433,14 @@ static void op_halt(InstrType *instr) {
    // Don't update pc
 }
 
-static void op_load_8(InstrType *instr) {
+static void op_load_reg8(InstrType *instr) {
+   // LD r[y], r[z]
    int dst_id  = (opcode >> 3) & 7;
    int src_id  = opcode & 7;
    int *dst = reg_ptr[dst_id];
    int *src = reg_ptr[src_id];
    if (dst_id == ID_MEMORY) {
-      if (*src >= 0 && *src != arg_write) {
+      if ((*src) >= 0 && (*src) != arg_write) {
          failflag = 1;
       }
    } else {
@@ -385,29 +449,33 @@ static void op_load_8(InstrType *instr) {
    update_pc();
 }
 
-static void op_load_mem_16(InstrType *instr) {
-   int reg_id = (opcode >> 4) & 3;
-   switch(reg_id) {
-   case 0:
-      reg_b = (arg_read >> 8) & 0xff;
-      reg_c = arg_read & 0xff;
-      break;
-   case 1:
-      reg_d = (arg_read >> 8) & 0xff;
-      reg_e = arg_read & 0xff;
-      break;
-   case 2:
-      reg_h = (arg_read >> 8) & 0xff;
-      reg_l = arg_read & 0xff;
-      break;
-   case 3:
-      reg_sp = arg_read;
-      break;
+static void op_load_imm8(InstrType *instr) {
+   // LD r[y], n
+   int reg_id  = (opcode >> 3) & 7;
+   int *reg = reg_ptr[reg_id];
+   if (reg_id == ID_MEMORY) {
+      if (arg_imm != arg_write) {
+         failflag = 1;
+      }
+   } else {
+      *reg = arg_imm;
    }
    update_pc();
 }
 
-static void op_store_mem_16(InstrType *instr) {
+static void op_load_imm16(InstrType *instr) {
+   int reg_id = (opcode >> 4) & 3;
+   write_reg_pair(reg_id, arg_imm);
+   update_pc();
+}
+
+static void op_load_mem16(InstrType *instr) {
+   int reg_id = (opcode >> 4) & 3;
+   write_reg_pair(reg_id, arg_read);
+   update_pc();
+}
+
+static void op_store_mem16(InstrType *instr) {
    int reg_id = (opcode >> 4) & 3;
    switch(reg_id) {
    case 0:
@@ -442,6 +510,123 @@ static void op_store_mem_16(InstrType *instr) {
    }
    update_pc();
 }
+
+static void op_inc_r(InstrType *instr) {
+   int reg_id = (opcode >> 3) & 7;
+   int *reg = reg_ptr[reg_id];
+   int result = ((*reg) + 1) & 0xff;
+   set_sign_zero(result);
+   flag_h  = (result & 0x0f) == 0;
+   flag_pv = (result == 0x80);
+   flag_n  = 0;
+   if (reg_id == ID_MEMORY) {
+      if (arg_write != result) {
+         failflag = 1;
+      }
+   } else {
+      *reg = result;
+   }
+}
+
+static void op_inc_rr(InstrType *instr) {
+   int reg_id = (opcode >> 4) & 3;
+   int val = read_reg_pair(reg_id);
+   if (val >= 0) {
+      write_reg_pair(reg_id, (val + 1) & 0xffff);
+   } else {
+      write_reg_pair(reg_id, -1);
+   }
+}
+
+static void op_inc_idx(InstrType *instr) {
+   int *i = IS_IY ? &reg_iy : &reg_ix;
+   if ((*i) >= 0) {
+      *i = ((*i) + 1) & 0xffff;
+   }
+}
+static void op_inc_idx_h(InstrType *instr) {
+   int *i = IS_IY ? &reg_iy : &reg_ix;
+   if ((*i) >= 0) {
+      *i = ((*i) + 0x100) & 0xffff;
+   }
+
+}
+static void op_inc_idx_l(InstrType *instr) {
+   int *i = IS_IY ? &reg_iy : &reg_ix;
+   if ((*i) >= 0) {
+      *i = ((*i) & 0xff00) | (((*i) + 1) & 0x00ff);
+   }
+}
+
+static void op_inc_idx_disp(InstrType *instr) {
+   int result = (arg_read + 1) & 0xff;
+   set_sign_zero(result);
+   flag_h  = (result & 0x0f) == 0;
+   flag_pv = (result == 0x80);
+   flag_n  = 0;
+   if (arg_write != result) {
+      failflag = 1;
+   }
+}
+
+static void op_dec_r(InstrType *instr) {
+   int reg_id = (opcode >> 3) & 7;
+   int *reg = reg_ptr[reg_id];
+   int result = ((*reg) - 1) & 0xff;
+   set_sign_zero(result);
+   flag_h  = (result & 0x0f) == 0;
+   flag_pv = (result == 0x80);
+   flag_n  = 0;
+   if (reg_id == ID_MEMORY) {
+      if (arg_write != result) {
+         failflag = 1;
+      }
+   } else {
+      *reg = result;
+   }
+}
+
+static void op_dec_rr(InstrType *instr) {
+   int reg_id = (opcode >> 4) & 3;
+   int val = read_reg_pair(reg_id);
+   if (val >= 0) {
+      write_reg_pair(reg_id, (val - 1) & 0xffff);
+   } else {
+      write_reg_pair(reg_id, -1);
+   }
+}
+
+static void op_dec_idx(InstrType *instr) {
+   int *i = IS_IY ? &reg_iy : &reg_ix;
+   if ((*i) >= 0) {
+      *i = ((*i) - 1) & 0xffff;
+   }
+}
+static void op_dec_idx_h(InstrType *instr) {
+   int *i = IS_IY ? &reg_iy : &reg_ix;
+   if ((*i) >= 0) {
+      *i = ((*i) - 0x100) & 0xffff;
+   }
+
+}
+static void op_dec_idx_l(InstrType *instr) {
+   int *i = IS_IY ? &reg_iy : &reg_ix;
+   if ((*i) >= 0) {
+      *i = ((*i) & 0xff00) | (((*i) - 1) & 0x00ff);
+   }
+}
+
+static void op_dec_idx_disp(InstrType *instr) {
+   int result = (arg_read - 1) & 0xff;
+   set_sign_zero(result);
+   flag_h  = (result & 0x0f) == 0;
+   flag_pv = (result == 0x80);
+   flag_n  = 0;
+   if (arg_write != result) {
+      failflag = 1;
+   }
+}
+
 
 static void op_bit(InstrType *instr) {
    int reg_id   = opcode & 7;
@@ -582,6 +767,7 @@ static void op_bit(InstrType *instr) {
          }
       }
    }
+   update_pc();
 }
 
 //Instruction tuple: (d, i, ro, wo, conditional, format type, format string, emulate method)
@@ -607,123 +793,123 @@ static void op_bit(InstrType *instr) {
 // Instructions without a prefix
 InstrType main_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "NOP",               op_nop          }, // 0x00
-   {0, 2, 0, 0, False, TYPE_8, "LD BC,%04Xh",       NULL            }, // 0x01
+   {0, 2, 0, 0, False, TYPE_8, "LD BC,%04Xh",       op_load_imm16   }, // 0x01
    {0, 0, 0, 1, False, TYPE_0, "LD (BC),A",         NULL            }, // 0x02
-   {0, 0, 0, 0, False, TYPE_0, "INC BC",            NULL            }, // 0x03
-   {0, 0, 0, 0, False, TYPE_0, "INC B",             NULL            }, // 0x04
-   {0, 0, 0, 0, False, TYPE_0, "DEC B",             NULL            }, // 0x05
-   {0, 1, 0, 0, False, TYPE_8, "LD B,%02Xh",        NULL            }, // 0x06
+   {0, 0, 0, 0, False, TYPE_0, "INC BC",            op_inc_rr       }, // 0x03
+   {0, 0, 0, 0, False, TYPE_0, "INC B",             op_inc_r        }, // 0x04
+   {0, 0, 0, 0, False, TYPE_0, "DEC B",             op_dec_r        }, // 0x05
+   {0, 1, 0, 0, False, TYPE_8, "LD B,%02Xh",        op_load_imm8    }, // 0x06
    {0, 0, 0, 0, False, TYPE_0, "RLCA",              NULL            }, // 0x07
    {0, 0, 0, 0, False, TYPE_0, "EX AF,AF'",         op_ex_af        }, // 0x08
    {0, 0, 0, 0, False, TYPE_0, "ADD HL,BC",         NULL            }, // 0x09
    {0, 0, 1, 0, False, TYPE_0, "LD A,(BC)",         NULL            }, // 0x0A
-   {0, 0, 0, 0, False, TYPE_0, "DEC BC",            NULL            }, // 0x0B
-   {0, 0, 0, 0, False, TYPE_0, "INC C",             NULL            }, // 0x0C
-   {0, 0, 0, 0, False, TYPE_0, "DEC C",             NULL            }, // 0x0D
-   {0, 1, 0, 0, False, TYPE_8, "LD C,%02Xh",        NULL            }, // 0x0E
+   {0, 0, 0, 0, False, TYPE_0, "DEC BC",            op_dec_rr       }, // 0x0B
+   {0, 0, 0, 0, False, TYPE_0, "INC C",             op_inc_r        }, // 0x0C
+   {0, 0, 0, 0, False, TYPE_0, "DEC C",             op_dec_r        }, // 0x0D
+   {0, 1, 0, 0, False, TYPE_8, "LD C,%02Xh",        op_load_imm8    }, // 0x0E
    {0, 0, 0, 0, False, TYPE_0, "RRCA",              NULL            }, // 0x0F
 
    {1, 0, 0, 0, False, TYPE_7, "DJNZ $%+d",         NULL            }, // 0x10
-   {0, 2, 0, 0, False, TYPE_8, "LD DE,%04Xh",       NULL            }, // 0x11
+   {0, 2, 0, 0, False, TYPE_8, "LD DE,%04Xh",       op_load_imm16   }, // 0x11
    {0, 0, 0, 1, False, TYPE_0, "LD (DE),A",         NULL            }, // 0x12
-   {0, 0, 0, 0, False, TYPE_0, "INC DE",            NULL            }, // 0x13
-   {0, 0, 0, 0, False, TYPE_0, "INC D",             NULL            }, // 0x14
-   {0, 0, 0, 0, False, TYPE_0, "DEC D",             NULL            }, // 0x15
-   {0, 1, 0, 0, False, TYPE_8, "LD D,%02Xh",        NULL            }, // 0x16
+   {0, 0, 0, 0, False, TYPE_0, "INC DE",            op_inc_rr       }, // 0x13
+   {0, 0, 0, 0, False, TYPE_0, "INC D",             op_inc_r        }, // 0x14
+   {0, 0, 0, 0, False, TYPE_0, "DEC D",             op_dec_r        }, // 0x15
+   {0, 1, 0, 0, False, TYPE_8, "LD D,%02Xh",        op_load_imm8    }, // 0x16
    {0, 0, 0, 0, False, TYPE_0, "RLA",               NULL            }, // 0x17
    {1, 0, 0, 0, False, TYPE_7, "JR $%+d",           NULL            }, // 0x18
    {0, 0, 0, 0, False, TYPE_0, "ADD HL,DE",         NULL            }, // 0x19
    {0, 0, 1, 0, False, TYPE_0, "LD A,(DE)",         NULL            }, // 0x1A
-   {0, 0, 0, 0, False, TYPE_0, "DEC DE",            NULL            }, // 0x1B
-   {0, 0, 0, 0, False, TYPE_0, "INC E",             NULL            }, // 0x1C
-   {0, 0, 0, 0, False, TYPE_0, "DEC E",             NULL            }, // 0x1D
-   {0, 1, 0, 0, False, TYPE_8, "LD E,%02Xh",        NULL            }, // 0x1E
+   {0, 0, 0, 0, False, TYPE_0, "DEC DE",            op_dec_rr       }, // 0x1B
+   {0, 0, 0, 0, False, TYPE_0, "INC E",             op_inc_r        }, // 0x1C
+   {0, 0, 0, 0, False, TYPE_0, "DEC E",             op_dec_r        }, // 0x1D
+   {0, 1, 0, 0, False, TYPE_8, "LD E,%02Xh",        op_load_imm8    }, // 0x1E
    {0, 0, 0, 0, False, TYPE_0, "RRA",               NULL            }, // 0x1F
 
    {1, 0, 0, 0, False, TYPE_7, "JR NZ,$%+d",        NULL            }, // 0x20
-   {0, 2, 0, 0, False, TYPE_8, "LD HL,%04Xh",       NULL            }, // 0x21
+   {0, 2, 0, 0, False, TYPE_8, "LD HL,%04Xh",       op_load_imm16   }, // 0x21
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),HL",     NULL            }, // 0x22
-   {0, 0, 0, 0, False, TYPE_0, "INC HL",            NULL            }, // 0x23
-   {0, 0, 0, 0, False, TYPE_0, "INC H",             NULL            }, // 0x24
-   {0, 0, 0, 0, False, TYPE_0, "DEC H",             NULL            }, // 0x25
-   {0, 1, 0, 0, False, TYPE_8, "LD H,%02Xh",        NULL            }, // 0x26
+   {0, 0, 0, 0, False, TYPE_0, "INC HL",            op_inc_rr       }, // 0x23
+   {0, 0, 0, 0, False, TYPE_0, "INC H",             op_inc_r        }, // 0x24
+   {0, 0, 0, 0, False, TYPE_0, "DEC H",             op_dec_r        }, // 0x25
+   {0, 1, 0, 0, False, TYPE_8, "LD H,%02Xh",        op_load_imm8    }, // 0x26
    {0, 0, 0, 0, False, TYPE_0, "DAA",               NULL            }, // 0x27
    {1, 0, 0, 0, False, TYPE_7, "JR Z,$%+d",         NULL            }, // 0x28
    {0, 0, 0, 0, False, TYPE_0, "ADD HL,HL",         NULL            }, // 0x29
    {0, 2, 2, 0, False, TYPE_8, "LD HL,(%04Xh)",     NULL            }, // 0x2A
-   {0, 0, 0, 0, False, TYPE_0, "DEC HL",            NULL            }, // 0x2B
-   {0, 0, 0, 0, False, TYPE_0, "INC L",             NULL            }, // 0x2C
-   {0, 0, 0, 0, False, TYPE_0, "DEC L",             NULL            }, // 0x2D
-   {0, 1, 0, 0, False, TYPE_8, "LD L,%02Xh",        NULL            }, // 0x2E
+   {0, 0, 0, 0, False, TYPE_0, "DEC HL",            op_dec_rr       }, // 0x2B
+   {0, 0, 0, 0, False, TYPE_0, "INC L",             op_inc_r        }, // 0x2C
+   {0, 0, 0, 0, False, TYPE_0, "DEC L",             op_dec_r        }, // 0x2D
+   {0, 1, 0, 0, False, TYPE_8, "LD L,%02Xh",        op_load_imm8    }, // 0x2E
    {0, 0, 0, 0, False, TYPE_0, "CPL",               NULL            }, // 0x2F
 
    {1, 0, 0, 0, False, TYPE_7, "JR NC,$%+d",        NULL            }, // 0x30
-   {0, 2, 0, 0, False, TYPE_8, "LD SP,%04Xh",       NULL            }, // 0x31
+   {0, 2, 0, 0, False, TYPE_8, "LD SP,%04Xh",       op_load_imm16   }, // 0x31
    {0, 2, 0, 1, False, TYPE_8, "LD (%04Xh),A",      NULL            }, // 0x32
-   {0, 0, 0, 0, False, TYPE_0, "INC SP",            NULL            }, // 0x33
-   {0, 0, 1, 1, False, TYPE_0, "INC (HL)",          NULL            }, // 0x34
-   {0, 0, 1, 1, False, TYPE_0, "DEC (HL)",          NULL            }, // 0x35
-   {0, 1, 0, 1, False, TYPE_8, "LD (HL),%02Xh",     NULL            }, // 0x36
+   {0, 0, 0, 0, False, TYPE_0, "INC SP",            op_inc_rr       }, // 0x33
+   {0, 0, 1, 1, False, TYPE_0, "INC (HL)",          op_inc_r        }, // 0x34
+   {0, 0, 1, 1, False, TYPE_0, "DEC (HL)",          op_dec_r        }, // 0x35
+   {0, 1, 0, 1, False, TYPE_8, "LD (HL),%02Xh",     op_load_imm8    }, // 0x36
    {0, 0, 0, 0, False, TYPE_0, "SCF",               NULL            }, // 0x37
    {1, 0, 0, 0, False, TYPE_7, "JR C,$%+d",         NULL            }, // 0x38
    {0, 0, 0, 0, False, TYPE_0, "ADD HL,SP",         NULL            }, // 0x39
    {0, 2, 1, 0, False, TYPE_8, "LD A,(%04Xh)",      NULL            }, // 0x3A
-   {0, 0, 0, 0, False, TYPE_0, "DEC SP",            NULL            }, // 0x3B
-   {0, 0, 0, 0, False, TYPE_0, "INC A",             NULL            }, // 0x3C
-   {0, 0, 0, 0, False, TYPE_0, "DEC A",             NULL            }, // 0x3D
-   {0, 1, 0, 0, False, TYPE_8, "LD A,%02Xh",        NULL            }, // 0x3E
+   {0, 0, 0, 0, False, TYPE_0, "DEC SP",            op_dec_rr       }, // 0x3B
+   {0, 0, 0, 0, False, TYPE_0, "INC A",             op_inc_r        }, // 0x3C
+   {0, 0, 0, 0, False, TYPE_0, "DEC A",             op_dec_r        }, // 0x3D
+   {0, 1, 0, 0, False, TYPE_8, "LD A,%02Xh",        op_load_imm8    }, // 0x3E
    {0, 0, 0, 0, False, TYPE_0, "CCF",               NULL            }, // 0x3F
 
-   {0, 0, 0, 0, False, TYPE_0, "LD B,B",            op_load_8       }, // 0x40
-   {0, 0, 0, 0, False, TYPE_0, "LD B,C",            op_load_8       }, // 0x41
-   {0, 0, 0, 0, False, TYPE_0, "LD B,D",            op_load_8       }, // 0x42
-   {0, 0, 0, 0, False, TYPE_0, "LD B,E",            op_load_8       }, // 0x43
-   {0, 0, 0, 0, False, TYPE_0, "LD B,H",            op_load_8       }, // 0x44
-   {0, 0, 0, 0, False, TYPE_0, "LD B,L",            op_load_8       }, // 0x45
-   {0, 0, 1, 0, False, TYPE_0, "LD B,(HL)",         op_load_8       }, // 0x46
-   {0, 0, 0, 0, False, TYPE_0, "LD B,A",            op_load_8       }, // 0x47
-   {0, 0, 0, 0, False, TYPE_0, "LD C,B",            op_load_8       }, // 0x48
-   {0, 0, 0, 0, False, TYPE_0, "LD C,C",            op_load_8       }, // 0x49
-   {0, 0, 0, 0, False, TYPE_0, "LD C,D",            op_load_8       }, // 0x4A
-   {0, 0, 0, 0, False, TYPE_0, "LD C,E",            op_load_8       }, // 0x4B
-   {0, 0, 0, 0, False, TYPE_0, "LD C,H",            op_load_8       }, // 0x4C
-   {0, 0, 0, 0, False, TYPE_0, "LD C,L",            op_load_8       }, // 0x4D
-   {0, 0, 1, 0, False, TYPE_0, "LD C,(HL)",         op_load_8       }, // 0x4E
-   {0, 0, 0, 0, False, TYPE_0, "LD C,A",            op_load_8       }, // 0x4F
+   {0, 0, 0, 0, False, TYPE_0, "LD B,B",            op_load_reg8    }, // 0x40
+   {0, 0, 0, 0, False, TYPE_0, "LD B,C",            op_load_reg8    }, // 0x41
+   {0, 0, 0, 0, False, TYPE_0, "LD B,D",            op_load_reg8    }, // 0x42
+   {0, 0, 0, 0, False, TYPE_0, "LD B,E",            op_load_reg8    }, // 0x43
+   {0, 0, 0, 0, False, TYPE_0, "LD B,H",            op_load_reg8    }, // 0x44
+   {0, 0, 0, 0, False, TYPE_0, "LD B,L",            op_load_reg8    }, // 0x45
+   {0, 0, 1, 0, False, TYPE_0, "LD B,(HL)",         op_load_reg8    }, // 0x46
+   {0, 0, 0, 0, False, TYPE_0, "LD B,A",            op_load_reg8    }, // 0x47
+   {0, 0, 0, 0, False, TYPE_0, "LD C,B",            op_load_reg8    }, // 0x48
+   {0, 0, 0, 0, False, TYPE_0, "LD C,C",            op_load_reg8    }, // 0x49
+   {0, 0, 0, 0, False, TYPE_0, "LD C,D",            op_load_reg8    }, // 0x4A
+   {0, 0, 0, 0, False, TYPE_0, "LD C,E",            op_load_reg8    }, // 0x4B
+   {0, 0, 0, 0, False, TYPE_0, "LD C,H",            op_load_reg8    }, // 0x4C
+   {0, 0, 0, 0, False, TYPE_0, "LD C,L",            op_load_reg8    }, // 0x4D
+   {0, 0, 1, 0, False, TYPE_0, "LD C,(HL)",         op_load_reg8    }, // 0x4E
+   {0, 0, 0, 0, False, TYPE_0, "LD C,A",            op_load_reg8    }, // 0x4F
 
-   {0, 0, 0, 0, False, TYPE_0, "LD D,B",            op_load_8       }, // 0x50
-   {0, 0, 0, 0, False, TYPE_0, "LD D,C",            op_load_8       }, // 0x51
-   {0, 0, 0, 0, False, TYPE_0, "LD D,D",            op_load_8       }, // 0x52
-   {0, 0, 0, 0, False, TYPE_0, "LD D,E",            op_load_8       }, // 0x53
-   {0, 0, 0, 0, False, TYPE_0, "LD D,H",            op_load_8       }, // 0x54
-   {0, 0, 0, 0, False, TYPE_0, "LD D,L",            op_load_8       }, // 0x55
-   {0, 0, 1, 0, False, TYPE_0, "LD D,(HL)",         op_load_8       }, // 0x56
-   {0, 0, 0, 0, False, TYPE_0, "LD D,A",            op_load_8       }, // 0x57
-   {0, 0, 0, 0, False, TYPE_0, "LD E,B",            op_load_8       }, // 0x58
-   {0, 0, 0, 0, False, TYPE_0, "LD E,C",            op_load_8       }, // 0x59
-   {0, 0, 0, 0, False, TYPE_0, "LD E,D",            op_load_8       }, // 0x5A
-   {0, 0, 0, 0, False, TYPE_0, "LD E,E",            op_load_8       }, // 0x5B
-   {0, 0, 0, 0, False, TYPE_0, "LD E,H",            op_load_8       }, // 0x5C
-   {0, 0, 0, 0, False, TYPE_0, "LD E,L",            op_load_8       }, // 0x5D
-   {0, 0, 1, 0, False, TYPE_0, "LD E,(HL)",         op_load_8       }, // 0x5E
-   {0, 0, 0, 0, False, TYPE_0, "LD E,A",            op_load_8       }, // 0x5F
+   {0, 0, 0, 0, False, TYPE_0, "LD D,B",            op_load_reg8    }, // 0x50
+   {0, 0, 0, 0, False, TYPE_0, "LD D,C",            op_load_reg8    }, // 0x51
+   {0, 0, 0, 0, False, TYPE_0, "LD D,D",            op_load_reg8    }, // 0x52
+   {0, 0, 0, 0, False, TYPE_0, "LD D,E",            op_load_reg8    }, // 0x53
+   {0, 0, 0, 0, False, TYPE_0, "LD D,H",            op_load_reg8    }, // 0x54
+   {0, 0, 0, 0, False, TYPE_0, "LD D,L",            op_load_reg8    }, // 0x55
+   {0, 0, 1, 0, False, TYPE_0, "LD D,(HL)",         op_load_reg8    }, // 0x56
+   {0, 0, 0, 0, False, TYPE_0, "LD D,A",            op_load_reg8    }, // 0x57
+   {0, 0, 0, 0, False, TYPE_0, "LD E,B",            op_load_reg8    }, // 0x58
+   {0, 0, 0, 0, False, TYPE_0, "LD E,C",            op_load_reg8    }, // 0x59
+   {0, 0, 0, 0, False, TYPE_0, "LD E,D",            op_load_reg8    }, // 0x5A
+   {0, 0, 0, 0, False, TYPE_0, "LD E,E",            op_load_reg8    }, // 0x5B
+   {0, 0, 0, 0, False, TYPE_0, "LD E,H",            op_load_reg8    }, // 0x5C
+   {0, 0, 0, 0, False, TYPE_0, "LD E,L",            op_load_reg8    }, // 0x5D
+   {0, 0, 1, 0, False, TYPE_0, "LD E,(HL)",         op_load_reg8    }, // 0x5E
+   {0, 0, 0, 0, False, TYPE_0, "LD E,A",            op_load_reg8    }, // 0x5F
 
-   {0, 0, 0, 0, False, TYPE_0, "LD H,B",            op_load_8       }, // 0x60
-   {0, 0, 0, 0, False, TYPE_0, "LD H,C",            op_load_8       }, // 0x61
-   {0, 0, 0, 0, False, TYPE_0, "LD H,D",            op_load_8       }, // 0x62
-   {0, 0, 0, 0, False, TYPE_0, "LD H,E",            op_load_8       }, // 0x63
-   {0, 0, 0, 0, False, TYPE_0, "LD H,H",            op_load_8       }, // 0x64
-   {0, 0, 0, 0, False, TYPE_0, "LD H,L",            op_load_8       }, // 0x65
-   {0, 0, 1, 0, False, TYPE_0, "LD H,(HL)",         op_load_8       }, // 0x66
-   {0, 0, 0, 0, False, TYPE_0, "LD H,A",            op_load_8       }, // 0x67
-   {0, 0, 0, 0, False, TYPE_0, "LD L,B",            op_load_8       }, // 0x68
-   {0, 0, 0, 0, False, TYPE_0, "LD L,C",            op_load_8       }, // 0x69
-   {0, 0, 0, 0, False, TYPE_0, "LD L,D",            op_load_8       }, // 0x6A
-   {0, 0, 0, 0, False, TYPE_0, "LD L,E",            op_load_8       }, // 0x6B
-   {0, 0, 0, 0, False, TYPE_0, "LD L,H",            op_load_8       }, // 0x6C
-   {0, 0, 0, 0, False, TYPE_0, "LD L,L",            op_load_8       }, // 0x6D
-   {0, 0, 1, 0, False, TYPE_0, "LD L,(HL)",         op_load_8       }, // 0x6E
-   {0, 0, 0, 0, False, TYPE_0, "LD L,A",            op_load_8       }, // 0x6F
+   {0, 0, 0, 0, False, TYPE_0, "LD H,B",            op_load_reg8    }, // 0x60
+   {0, 0, 0, 0, False, TYPE_0, "LD H,C",            op_load_reg8    }, // 0x61
+   {0, 0, 0, 0, False, TYPE_0, "LD H,D",            op_load_reg8    }, // 0x62
+   {0, 0, 0, 0, False, TYPE_0, "LD H,E",            op_load_reg8    }, // 0x63
+   {0, 0, 0, 0, False, TYPE_0, "LD H,H",            op_load_reg8    }, // 0x64
+   {0, 0, 0, 0, False, TYPE_0, "LD H,L",            op_load_reg8    }, // 0x65
+   {0, 0, 1, 0, False, TYPE_0, "LD H,(HL)",         op_load_reg8    }, // 0x66
+   {0, 0, 0, 0, False, TYPE_0, "LD H,A",            op_load_reg8    }, // 0x67
+   {0, 0, 0, 0, False, TYPE_0, "LD L,B",            op_load_reg8    }, // 0x68
+   {0, 0, 0, 0, False, TYPE_0, "LD L,C",            op_load_reg8    }, // 0x69
+   {0, 0, 0, 0, False, TYPE_0, "LD L,D",            op_load_reg8    }, // 0x6A
+   {0, 0, 0, 0, False, TYPE_0, "LD L,E",            op_load_reg8    }, // 0x6B
+   {0, 0, 0, 0, False, TYPE_0, "LD L,H",            op_load_reg8    }, // 0x6C
+   {0, 0, 0, 0, False, TYPE_0, "LD L,L",            op_load_reg8    }, // 0x6D
+   {0, 0, 1, 0, False, TYPE_0, "LD L,(HL)",         op_load_reg8    }, // 0x6E
+   {0, 0, 0, 0, False, TYPE_0, "LD L,A",            op_load_reg8    }, // 0x6F
 
    {0, 0, 0, 1, False, TYPE_0, "LD (HL),B",         NULL            }, // 0x70
    {0, 0, 0, 1, False, TYPE_0, "LD (HL),C",         NULL            }, // 0x71
@@ -952,7 +1138,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 1, 0, False, TYPE_0, "IN B,(C)",          NULL            }, // 0x40
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),B",         NULL            }, // 0x41
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,BC",         NULL            }, // 0x42
-   {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),BC",     op_store_mem_16 }, // 0x43
+   {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),BC",     op_store_mem16  }, // 0x43
    {0, 0, 0, 0, False, TYPE_0, "NEG",               NULL            }, // 0x44
    {0, 0, 2, 0, False, TYPE_0, "RETN",              NULL            }, // 0x45
    {0, 0, 0, 0, False, TYPE_0, "IM 0",              NULL            }, // 0x46
@@ -960,7 +1146,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 1, 0, False, TYPE_0, "IN C,(C)",          NULL            }, // 0x48
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),C",         NULL            }, // 0x49
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,BC",         NULL            }, // 0x4A
-   {0, 2, 2, 0, False, TYPE_8, "LD BC,(%04Xh)",     op_load_mem_16  }, // 0x4B
+   {0, 2, 2, 0, False, TYPE_8, "LD BC,(%04Xh)",     op_load_mem16   }, // 0x4B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               NULL            }, // 0x4C
    {0, 0, 2, 0, False, TYPE_0, "RETI",              NULL            }, // 0x4D
    {0, 0, 0, 0, False, TYPE_0, "IM 0/1",            NULL            }, // 0x4E
@@ -969,7 +1155,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 1, 0, False, TYPE_0, "IN D,(C)",          NULL            }, // 0x50
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),D",         NULL            }, // 0x51
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,DE",         NULL            }, // 0x52
-   {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),DE",     op_store_mem_16 }, // 0x53
+   {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),DE",     op_store_mem16  }, // 0x53
    {0, 0, 0, 0, False, TYPE_0, "NEG",               NULL            }, // 0x54
    {0, 0, 2, 0, False, TYPE_0, "RETN",              NULL            }, // 0x55
    {0, 0, 0, 0, False, TYPE_0, "IM 1",              NULL            }, // 0x56
@@ -977,7 +1163,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 1, 0, False, TYPE_0, "IN E,(C)",          NULL            }, // 0x58
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),E",         NULL            }, // 0x59
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,DE",         NULL            }, // 0x5A
-   {0, 2, 2, 0, False, TYPE_8, "LD DE,(%04Xh)",     op_load_mem_16  }, // 0x5B
+   {0, 2, 2, 0, False, TYPE_8, "LD DE,(%04Xh)",     op_load_mem16   }, // 0x5B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               NULL            }, // 0x5C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              NULL            }, // 0x5D
    {0, 0, 0, 0, False, TYPE_0, "IM 2",              NULL            }, // 0x5E
@@ -986,7 +1172,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 1, 0, False, TYPE_0, "IN H,(C)",          NULL            }, // 0x60
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),H",         NULL            }, // 0x61
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,HL",         NULL            }, // 0x62
-   {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),HL",     op_store_mem_16}, // 0x63
+   {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),HL",     op_store_mem16 }, // 0x63
    {0, 0, 0, 0, False, TYPE_0, "NEG",               NULL            }, // 0x64
    {0, 0, 2, 0, False, TYPE_0, "RETN",              NULL            }, // 0x65
    {0, 0, 0, 0, False, TYPE_0, "IM 0",              NULL            }, // 0x66
@@ -994,7 +1180,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 1, 0, False, TYPE_0, "IN L,(C)",          NULL            }, // 0x68
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),L",         NULL            }, // 0x69
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,HL",         NULL            }, // 0x6A
-   {0, 2, 2, 0, False, TYPE_8, "LD HL,(%04Xh)",     op_load_mem_16  }, // 0x6B
+   {0, 2, 2, 0, False, TYPE_8, "LD HL,(%04Xh)",     op_load_mem16   }, // 0x6B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               NULL            }, // 0x6C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              NULL            }, // 0x6D
    {0, 0, 0, 0, False, TYPE_0, "IM 0/1",            NULL            }, // 0x6E
@@ -1003,7 +1189,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 1, 0, False, TYPE_0, "IN (C)",            NULL            }, // 0x70
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),0",         NULL            }, // 0x71
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,SP",         NULL            }, // 0x72
-   {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),SP",     op_store_mem_16 }, // 0x73
+   {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),SP",     op_store_mem16  }, // 0x73
    {0, 0, 0, 0, False, TYPE_0, "NEG",               NULL            }, // 0x74
    {0, 0, 2, 0, False, TYPE_0, "RETN",              NULL            }, // 0x75
    {0, 0, 0, 0, False, TYPE_0, "IM 1",              NULL            }, // 0x76
@@ -1011,7 +1197,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 1, 0, False, TYPE_0, "IN A,(C)",          NULL            }, // 0x78
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),A",         NULL            }, // 0x79
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,SP",         NULL            }, // 0x7A
-   {0, 2, 2, 0, False, TYPE_8, "LD SP,(%04Xh)",     op_load_mem_16  }, // 0x7B
+   {0, 2, 2, 0, False, TYPE_8, "LD SP,(%04Xh)",     op_load_mem16   }, // 0x7B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               NULL            }, // 0x7C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              NULL            }, // 0x7D
    {0, 0, 0, 0, False, TYPE_0, "IM 2",              NULL            }, // 0x7E
@@ -1468,17 +1654,17 @@ InstrType index_instructions[256] = {
    UNDEFINED,                                                          // 0x20
    {0, 2, 0, 0, False, TYPE_4, "LD %s,%04Xh",       NULL            }, // 0x21
    {0, 2, 0, 2, False, TYPE_3, "LD (%04Xh),%s",     NULL            }, // 0x22
-   {0, 0, 0, 0, False, TYPE_1, "INC %s",            NULL            }, // 0x23
-   {0, 0, 0, 0, False, TYPE_1, "INC %sh",           NULL            }, // 0x24
-   {0, 0, 0, 0, False, TYPE_1, "DEC %sh",           NULL            }, // 0x25
+   {0, 0, 0, 0, False, TYPE_1, "INC %s",            op_inc_idx      }, // 0x23
+   {0, 0, 0, 0, False, TYPE_1, "INC %sh",           op_inc_idx_h    }, // 0x24
+   {0, 0, 0, 0, False, TYPE_1, "DEC %sh",           op_dec_idx_h    }, // 0x25
    {0, 1, 0, 0, False, TYPE_4, "LD %sh,%02Xh",      NULL            }, // 0x26
    UNDEFINED,                                                          // 0x27
    UNDEFINED,                                                          // 0x28
    {0, 0, 0, 0, False, TYPE_2, "ADD %s,%s",         NULL            }, // 0x29
    {0, 2, 2, 0, False, TYPE_4, "LD %s,(%04Xh)",     NULL            }, // 0x2A
-   {0, 0, 0, 0, False, TYPE_1, "DEC %s",            NULL            }, // 0x2B
-   {0, 0, 0, 0, False, TYPE_1, "INC %sl",           NULL            }, // 0x2C
-   {0, 0, 0, 0, False, TYPE_1, "DEC %sl",           NULL            }, // 0x2D
+   {0, 0, 0, 0, False, TYPE_1, "DEC %s",            op_dec_idx      }, // 0x2B
+   {0, 0, 0, 0, False, TYPE_1, "INC %sl",           op_inc_idx_l    }, // 0x2C
+   {0, 0, 0, 0, False, TYPE_1, "DEC %sl",           op_dec_idx_l    }, // 0x2D
    {0, 1, 0, 0, False, TYPE_4, "LD %sl,%02Xh",      NULL            }, // 0x2E
    UNDEFINED,                                                          // 0x2F
 
@@ -1486,8 +1672,8 @@ InstrType index_instructions[256] = {
    UNDEFINED,                                                          // 0x31
    UNDEFINED,                                                          // 0x32
    UNDEFINED,                                                          // 0x33
-   {1, 0, 1, 1, False, TYPE_5, "INC (%s%+d)",       NULL            }, // 0x34
-   {1, 0, 1, 1, False, TYPE_5, "DEC (%s%+d)",       NULL            }, // 0x35
+   {1, 0, 1, 1, False, TYPE_5, "INC (%s%+d)",       op_inc_idx_disp }, // 0x34
+   {1, 0, 1, 1, False, TYPE_5, "DEC (%s%+d)",       op_dec_idx_disp }, // 0x35
    {1, 1, 0, 1, False, TYPE_6, "LD (%s%+d),%02xh",  NULL            }, // 0x36
    UNDEFINED,                                                          // 0x37
    UNDEFINED,                                                          // 0x38

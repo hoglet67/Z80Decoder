@@ -187,19 +187,35 @@ typedef enum {
    ANN_WOP
 } AnnType;
 
-static int instr_len        = 0;
+
+int prefix             = 0;
+int opcode             = 0;
+int arg_dis            = 0;
+int arg_imm            = 0;
+int arg_read           = 0;
+int arg_write          = 0;
+int failflag           = 0;
+int instr_len          = 0;
+InstrType *instruction = NULL;
+
 static AnnType ann_dasm     = ANN_NONE;
 static const char *mnemonic = NULL;
 static FormatType format    = TYPE_0;
-static int arg_dis          = 0;
-static int arg_imm          = 0;
-static int arg_read         = 0;
-static int arg_write        = 0;
 static char *arg_reg        = NULL;
 
 static Z80StateType state;
 
 static int nmi_pending = 0;
+
+void emulate_instruction() {
+   if (instruction && instruction->emulate) {
+      failflag = 0;
+      instruction->emulate(instruction);
+      if (failflag) {
+         printf("fail");
+      }
+   }
+}
 
 void decode_state(Z80CycleType cycle, int data) {
 
@@ -209,10 +225,8 @@ void decode_state(Z80CycleType cycle, int data) {
    static int want_write  = 0;
    static int want_wr_be  = False;
    static int conditional = False;
-   static int op_prefix   = 0;
 
    InstrType *table = NULL;
-   InstrType *instruction = NULL;
 
    instr_len += 1;
 
@@ -232,14 +246,16 @@ void decode_state(Z80CycleType cycle, int data) {
       arg_reg     = "";
       mnemonic    = "";
       format      = TYPE_0;
-      op_prefix   = 0;
+      opcode      = 0;
+      prefix      = 0;
+      instruction = NULL;
       instr_len   = 1;
       state       = S_OPCODE;
       // And fall through to S_OPCODE
 
    case S_OPCODE:
       // Handle interrupt acknowledge
-      if (op_prefix == 0) {
+      if (prefix == 0) {
          if (nmi_pending ) {
             printf(" (NMI taken)");
             nmi_pending = 0;
@@ -256,29 +272,29 @@ void decode_state(Z80CycleType cycle, int data) {
          }
       }
       // Check the cycle type...
-      if (cycle != ((op_prefix == 0xDDCB || op_prefix == 0xFDCB) ? C_MEMRD : C_FETCH)) {
+      if (cycle != ((prefix == 0xDDCB || prefix == 0xFDCB) ? C_MEMRD : C_FETCH)) {
          mnemonic = "Incorrect cycle type for prefix/opcode";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
          return;
       }
-      if (op_prefix == 0) {
+      if (prefix == 0) {
          // Process any first prefix byte
          if (data == 0xCB || data == 0xED || data == 0xDD || data == 0xFD) {
-            op_prefix = data;
+            prefix = data;
             return;
          }
-      } else if (data == 0xCB && (op_prefix == 0xDD || op_prefix == 0xFD)) {
+      } else if (data == 0xCB && (prefix == 0xDD || prefix == 0xFD)) {
          // Process any second prefix byte, and then then the pre-displacement
-         op_prefix = (op_prefix << 8) | data;
+         prefix = (prefix << 8) | data;
          state = S_PREDIS;
          return;
       }
       // Otherwise, continue to decode the opcode
-      table = table_by_prefix(op_prefix);
-      arg_reg = reg_by_prefix(op_prefix);
-      op_prefix = 0;
-      instruction = &table[data];
+      table = table_by_prefix(prefix);
+      arg_reg = reg_by_prefix(prefix);
+      opcode = data;
+      instruction = &table[opcode];
       if (instruction->want_dis < 0) {
          mnemonic = "Invalid instruction";
          ann_dasm = ANN_WARN;
@@ -310,6 +326,7 @@ void decode_state(Z80CycleType cycle, int data) {
             state = S_WOP1;
          } else {
             state = S_IDLE;
+            emulate_instruction();
          }
       }
       break;
@@ -343,6 +360,7 @@ void decode_state(Z80CycleType cycle, int data) {
             state = S_WOP1;
          } else {
             state = S_IDLE;
+            emulate_instruction();
          }
       }
       break;
@@ -365,6 +383,7 @@ void decode_state(Z80CycleType cycle, int data) {
             state = S_WOP1;
          } else {
             state = S_IDLE;
+            emulate_instruction();
          }
       }
       break;
@@ -384,6 +403,7 @@ void decode_state(Z80CycleType cycle, int data) {
          state = S_WOP1;
       } else {
          state = S_IDLE;
+         emulate_instruction();
       }
       break;
 
@@ -393,6 +413,7 @@ void decode_state(Z80CycleType cycle, int data) {
       // will be the fetch of the next instruction
       if (conditional && (cycle == C_FETCH || cycle == C_INTACK)) {
          state = S_IDLE;
+         emulate_instruction();
          // Recusively call ourselves to handle this case cleanly
          decode_state(cycle, data);
          return;
@@ -414,6 +435,7 @@ void decode_state(Z80CycleType cycle, int data) {
          state = S_WOP1;
       } else {
          state = S_IDLE;
+         emulate_instruction();
       }
       break;
 
@@ -431,6 +453,7 @@ void decode_state(Z80CycleType cycle, int data) {
          state = S_WOP1;
       } else {
          state = S_IDLE;
+         emulate_instruction();
       }
       break;
 
@@ -440,6 +463,7 @@ void decode_state(Z80CycleType cycle, int data) {
       // will be the fetch of the next instruction
       if (conditional && (cycle == C_FETCH || cycle == C_INTACK)) {
          state = S_IDLE;
+         emulate_instruction();
          // Recusively call ourselves to handle this case cleanly
          decode_state(cycle, data);
          return;
@@ -457,6 +481,7 @@ void decode_state(Z80CycleType cycle, int data) {
          mnemonic = "Wr: %02X";
          ann_dasm = ANN_WOP;
          state = S_IDLE;
+         emulate_instruction();
       }
       break;
 
@@ -475,6 +500,7 @@ void decode_state(Z80CycleType cycle, int data) {
       mnemonic = "Wr: %04X";
       ann_dasm = ANN_WOP;
       state = S_IDLE;
+      emulate_instruction();
       break;
    }
 }

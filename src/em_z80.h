@@ -16,7 +16,7 @@ typedef enum {
    TYPE_8    // {arg_dis}
 } FormatType;
 
-typedef struct {
+typedef struct Instr {
    int want_dis;
    int want_imm;
    int want_read;
@@ -24,7 +24,7 @@ typedef struct {
    int conditional;
    FormatType format;
    const char *mnemonic;
-   void (*emulate)(int, int);
+   void (*emulate)(struct Instr *);
 } InstrType;
 
 InstrType *table_by_prefix(int prefix);

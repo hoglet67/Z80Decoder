@@ -314,6 +314,84 @@ static void op_jr(InstrType *instr) {
    }
 }
 
+static void op_jp(InstrType *instr) {
+   reg_pc = arg_imm;
+}
+
+static void op_jp_hl(InstrType *instr) {
+   reg_pc = read_reg_pair(ID_RR_HL);
+}
+
+static void op_jp_idx(InstrType *instr) {
+   reg_pc = IS_IY ? reg_iy : reg_ix;
+}
+
+static void op_jp_cond(InstrType *instr) {
+   int cc = (opcode >> 3) & 7;
+   // default to unknown
+   int taken = -1;
+   switch (cc) {
+   case 0:
+      // NZ
+      if (flag_z >= 0) {
+         taken = !flag_z;
+      }
+      break;
+   case 1:
+      // Z
+      if (flag_z >= 0) {
+         taken = flag_z;
+      }
+      break;
+   case 2:
+      // NC
+      if (flag_c >= 0) {
+         taken = !flag_c;
+      }
+      break;
+   case 3:
+      // C
+      if (flag_c >= 0) {
+         taken = flag_c;
+      }
+      break;
+   case 4:
+      // PO
+      if (flag_pv >= 0) {
+         taken = !flag_pv;
+      }
+      break;
+   case 5:
+      // PE
+      if (flag_pv >= 0) {
+         taken = flag_pv;
+      }
+      break;
+   case 6:
+      // P
+      if (flag_s >= 0) {
+         taken = !flag_s;
+      }
+      break;
+   case 7:
+      // M
+      if (flag_s >= 0) {
+         taken = flag_s;
+      }
+      break;
+   }
+   // TODO: could infer more state from number of cycles
+   if (taken >= 0) {
+      if (taken) {
+         reg_pc = arg_imm;
+      } else {
+         update_pc();
+      }
+   } else {
+      reg_pc = -1;
+   }
+}
+
 static void op_alu(InstrType *instr) {
    int alu_op  = (opcode >> 3) & 7;
    int reg_id  = opcode & 7;
@@ -1216,15 +1294,15 @@ InstrType main_instructions[256] = {
 
    {0, 0, 2, 0, True,  TYPE_0, "RET NZ",            NULL            }, // 0xC0
    {0, 0, 2, 0, False, TYPE_0, "POP BC",            NULL            }, // 0xC1
-   {0, 2, 0, 0, False, TYPE_8, "JP NZ,%04Xh",       NULL            }, // 0xC2
-   {0, 2, 0, 0, False, TYPE_8, "JP %04Xh",          NULL            }, // 0xC3
-   {0, 2, 0,-2, True,  TYPE_8, "CALL NZ,%04Xh",     NULL            }, // 0xC4
+   {0, 2, 0, 0, False, TYPE_8, "JP NZ,%04Xh",       op_jp_cond      }, // 0xC2
+   {0, 2, 0, 0, False, TYPE_8, "JP %04Xh",          op_jp           }, // 0xC3
+   {0, 2, 0,-2, True,  TYPE_8, "CALL NZ,%04Xh",     op_jp_cond      }, // 0xC4
    {0, 0, 0,-2, False, TYPE_0, "PUSH BC",           NULL            }, // 0xC5
    {0, 1, 0, 0, False, TYPE_8, "ADD A,%02Xh",       NULL            }, // 0xC6
    {0, 0, 0,-2, False, TYPE_0, "RST 00h",           NULL            }, // 0xC7
    {0, 0, 2, 0, True,  TYPE_0, "RET Z",             NULL            }, // 0xC8
    {0, 0, 2, 0, False, TYPE_0, "RET",               NULL            }, // 0xC9
-   {0, 2, 0, 0, False, TYPE_8, "JP Z,%04Xh",        NULL            }, // 0xCA
+   {0, 2, 0, 0, False, TYPE_8, "JP Z,%04Xh",        op_jp_cond      }, // 0xCA
    UNDEFINED,                                                          // 0xCB
    {0, 2, 0,-2, True,  TYPE_8, "CALL Z,%04Xh",      NULL            }, // 0xCC
    {0, 2, 0,-2, False, TYPE_8, "CALL %04Xh",        NULL            }, // 0xCD
@@ -1233,7 +1311,7 @@ InstrType main_instructions[256] = {
 
    {0, 0, 2, 0, True,  TYPE_0, "RET NC",            NULL            }, // 0xD0
    {0, 0, 2, 0, False, TYPE_0, "POP DE",            NULL            }, // 0xD1
-   {0, 2, 0, 0, False, TYPE_8, "JP NC,%04Xh",       NULL            }, // 0xD2
+   {0, 2, 0, 0, False, TYPE_8, "JP NC,%04Xh",       op_jp_cond      }, // 0xD2
    {0, 1, 0, 1, False, TYPE_8, "OUT (%02Xh),A",     NULL            }, // 0xD3
    {0, 2, 0,-2, True,  TYPE_8, "CALL NC,%04Xh",     NULL            }, // 0xD4
    {0, 0, 0,-2, False, TYPE_0, "PUSH DE",           NULL            }, // 0xD5
@@ -1241,7 +1319,7 @@ InstrType main_instructions[256] = {
    {0, 0, 0,-2, False, TYPE_0, "RST 10h",           NULL            }, // 0xD7
    {0, 0, 2, 0, True,  TYPE_0, "RET C",             NULL            }, // 0xD8
    {0, 0, 0, 0, False, TYPE_0, "EXX",               op_exx          }, // 0xD9
-   {0, 2, 0, 0, False, TYPE_8, "JP C,%04Xh",        NULL            }, // 0xDA
+   {0, 2, 0, 0, False, TYPE_8, "JP C,%04Xh",        op_jp_cond      }, // 0xDA
    {0, 1, 1, 0, False, TYPE_8, "IN A,(%02Xh)",      NULL            }, // 0xDB
    {0, 2, 0,-2, True,  TYPE_8, "CALL C,%04Xh",      NULL            }, // 0xDC
    UNDEFINED,                                                          // 0xDD
@@ -1250,15 +1328,15 @@ InstrType main_instructions[256] = {
 
    {0, 0, 2, 0, True,  TYPE_0, "RET PO",            NULL            }, // 0xE0
    {0, 0, 2, 0, False, TYPE_0, "POP HL",            NULL            }, // 0xE1
-   {0, 2, 0, 0, False, TYPE_8, "JP PO,%04Xh",       NULL            }, // 0xE2
+   {0, 2, 0, 0, False, TYPE_8, "JP PO,%04Xh",       op_jp_cond      }, // 0xE2
    {0, 0, 2,-2, False, TYPE_0, "EX (SP),HL",        op_ex_tos_hl    }, // 0xE3
    {0, 2, 0,-2, True,  TYPE_8, "CALL PO,%04Xh",     NULL            }, // 0xE4
    {0, 0, 0,-2, False, TYPE_0, "PUSH HL",           NULL            }, // 0xE5
    {0, 1, 0, 0, False, TYPE_8, "AND %02Xh",         NULL            }, // 0xE6
    {0, 0, 0,-2, False, TYPE_0, "RST 20h",           NULL            }, // 0xE7
    {0, 0, 2, 0, True,  TYPE_0, "RET PE",            NULL            }, // 0xE8
-   {0, 0, 0, 0, False, TYPE_0, "JP (HL)",           NULL            }, // 0xE9
-   {0, 2, 0, 0, False, TYPE_8, "JP PE,%04Xh",       NULL            }, // 0xEA
+   {0, 0, 0, 0, False, TYPE_0, "JP (HL)",           op_jp_hl        }, // 0xE9
+   {0, 2, 0, 0, False, TYPE_8, "JP PE,%04Xh",       op_jp_cond      }, // 0xEA
    {0, 0, 0, 0, False, TYPE_0, "EX DE,HL",          op_ex_de_hl     }, // 0xEB
    {0, 2, 0,-2, True,  TYPE_8, "CALL PE,%04Xh",     NULL            }, // 0xEC
    UNDEFINED,                                                          // 0xED
@@ -1267,7 +1345,7 @@ InstrType main_instructions[256] = {
 
    {0, 0, 2, 0, True,  TYPE_0, "RET P",             NULL            }, // 0xF0
    {0, 0, 2, 0, False, TYPE_0, "POP AF",            NULL            }, // 0xF1
-   {0, 2, 0, 0, False, TYPE_8, "JP P,%04Xh",        NULL            }, // 0xF2
+   {0, 2, 0, 0, False, TYPE_8, "JP P,%04Xh",        op_jp_cond      }, // 0xF2
    {0, 0, 0, 0, False, TYPE_0, "DI",                NULL            }, // 0xF3
    {0, 2, 0,-2, True,  TYPE_8, "CALL P,%04Xh",      NULL            }, // 0xF4
    {0, 0, 0,-2, False, TYPE_0, "PUSH AF",           NULL            }, // 0xF5
@@ -1275,7 +1353,7 @@ InstrType main_instructions[256] = {
    {0, 0, 0,-2, False, TYPE_0, "RST 30h",           NULL            }, // 0xF7
    {0, 0, 2, 0, True,  TYPE_0, "RET M",             NULL            }, // 0xF8
    {0, 0, 0, 0, False, TYPE_0, "LD SP,HL",          NULL            }, // 0xF9
-   {0, 2, 0, 0, False, TYPE_8, "JP M,%04Xh",        NULL            }, // 0xFA
+   {0, 2, 0, 0, False, TYPE_8, "JP M,%04Xh",        op_jp_cond       }, // 0xFA
    {0, 0, 0, 0, False, TYPE_0, "EI",                NULL            }, // 0xFB
    {0, 2, 0,-2, True,  TYPE_8, "CALL M,%04Xh",      NULL            }, // 0xFC
    UNDEFINED,                                                          // 0xFD
@@ -2082,7 +2160,7 @@ InstrType index_instructions[256] = {
    UNDEFINED,                                                          // 0xE6
    UNDEFINED,                                                          // 0xE7
    UNDEFINED,                                                          // 0xE8
-   {0, 0, 0, 0, False, TYPE_1, "JP (%s)",           NULL            }, // 0xE9
+   {0, 0, 0, 0, False, TYPE_1, "JP (%s)",           op_jp_idx       }, // 0xE9
    UNDEFINED,                                                          // 0xEA
    UNDEFINED,                                                          // 0xEB
    UNDEFINED,                                                          // 0xEC

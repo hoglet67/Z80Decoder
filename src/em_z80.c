@@ -269,6 +269,51 @@ static void update_pc() {
 // Emulation instructions
 // ===================================================================
 
+
+static void op_jr(InstrType *instr) {
+   int cc = (opcode >> 3) & 7;
+   // default to unknown
+   int taken = -1;
+   switch (cc) {
+   case 4:
+      // NZ
+      if (flag_z >= 0) {
+         taken = !flag_z;
+      }
+      break;
+   case 5:
+      // Z
+      if (flag_z >= 0) {
+         taken = flag_z;
+      }
+      break;
+   case 6:
+      // NC
+      if (flag_c >= 0) {
+         taken = !flag_c;
+      }
+      break;
+   case 7:
+      // C
+      if (flag_c >= 0) {
+         taken = flag_c;
+      }
+      break;
+   default:
+      // unconditional
+      taken = 1;
+   }
+   // TODO: could infer more state from number of cycles
+   if (taken >= 0 && reg_pc >= 0) {
+      update_pc();
+      if (taken) {
+         reg_pc += + arg_dis;
+      }
+   } else {
+      reg_pc = -1;
+   }
+}
+
 static void op_alu(InstrType *instr) {
    int alu_op  = (opcode >> 3) & 7;
    int reg_id  = opcode & 7;
@@ -990,7 +1035,7 @@ InstrType main_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "DEC D",             op_dec_r        }, // 0x15
    {0, 1, 0, 0, False, TYPE_8, "LD D,%02Xh",        op_load_imm8    }, // 0x16
    {0, 0, 0, 0, False, TYPE_0, "RLA",               op_misc_rotate  }, // 0x17
-   {1, 0, 0, 0, False, TYPE_7, "JR $%+d",           NULL            }, // 0x18
+   {1, 0, 0, 0, False, TYPE_7, "JR $%+d",           op_jr           }, // 0x18
    {0, 0, 0, 0, False, TYPE_0, "ADD HL,DE",         op_add_hl_rr    }, // 0x19
    {0, 0, 1, 0, False, TYPE_0, "LD A,(DE)",         op_load_a       }, // 0x1A
    {0, 0, 0, 0, False, TYPE_0, "DEC DE",            op_dec_rr       }, // 0x1B
@@ -999,7 +1044,7 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 0, False, TYPE_8, "LD E,%02Xh",        op_load_imm8    }, // 0x1E
    {0, 0, 0, 0, False, TYPE_0, "RRA",               op_misc_rotate  }, // 0x1F
 
-   {1, 0, 0, 0, False, TYPE_7, "JR NZ,$%+d",        NULL            }, // 0x20
+   {1, 0, 0, 0, False, TYPE_7, "JR NZ,$%+d",        op_jr           }, // 0x20
    {0, 2, 0, 0, False, TYPE_8, "LD HL,%04Xh",       op_load_imm16   }, // 0x21
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),HL",     op_store_hl     }, // 0x22
    {0, 0, 0, 0, False, TYPE_0, "INC HL",            op_inc_rr       }, // 0x23
@@ -1007,7 +1052,7 @@ InstrType main_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "DEC H",             op_dec_r        }, // 0x25
    {0, 1, 0, 0, False, TYPE_8, "LD H,%02Xh",        op_load_imm8    }, // 0x26
    {0, 0, 0, 0, False, TYPE_0, "DAA",               op_misc_daa     }, // 0x27
-   {1, 0, 0, 0, False, TYPE_7, "JR Z,$%+d",         NULL            }, // 0x28
+   {1, 0, 0, 0, False, TYPE_7, "JR Z,$%+d",         op_jr           }, // 0x28
    {0, 0, 0, 0, False, TYPE_0, "ADD HL,HL",         op_add_hl_rr    }, // 0x29
    {0, 2, 2, 0, False, TYPE_8, "LD HL,(%04Xh)",     op_load_hl      }, // 0x2A
    {0, 0, 0, 0, False, TYPE_0, "DEC HL",            op_dec_rr       }, // 0x2B
@@ -1016,7 +1061,7 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 0, False, TYPE_8, "LD L,%02Xh",        op_load_imm8    }, // 0x2E
    {0, 0, 0, 0, False, TYPE_0, "CPL",               op_misc_cpl     }, // 0x2F
 
-   {1, 0, 0, 0, False, TYPE_7, "JR NC,$%+d",        NULL            }, // 0x30
+   {1, 0, 0, 0, False, TYPE_7, "JR NC,$%+d",        op_jr           }, // 0x30
    {0, 2, 0, 0, False, TYPE_8, "LD SP,%04Xh",       op_load_imm16   }, // 0x31
    {0, 2, 0, 1, False, TYPE_8, "LD (%04Xh),A",      op_store_a      }, // 0x32
    {0, 0, 0, 0, False, TYPE_0, "INC SP",            op_inc_rr       }, // 0x33
@@ -1024,7 +1069,7 @@ InstrType main_instructions[256] = {
    {0, 0, 1, 1, False, TYPE_0, "DEC (HL)",          op_dec_r        }, // 0x35
    {0, 1, 0, 1, False, TYPE_8, "LD (HL),%02Xh",     op_load_imm8    }, // 0x36
    {0, 0, 0, 0, False, TYPE_0, "SCF",               op_misc_scf     }, // 0x37
-   {1, 0, 0, 0, False, TYPE_7, "JR C,$%+d",         NULL            }, // 0x38
+   {1, 0, 0, 0, False, TYPE_7, "JR C,$%+d",         op_jr           }, // 0x38
    {0, 0, 0, 0, False, TYPE_0, "ADD HL,SP",         op_add_hl_rr    }, // 0x39
    {0, 2, 1, 0, False, TYPE_8, "LD A,(%04Xh)",      op_load_a       }, // 0x3A
    {0, 0, 0, 0, False, TYPE_0, "DEC SP",            op_dec_rr       }, // 0x3B

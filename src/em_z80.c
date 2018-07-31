@@ -170,11 +170,21 @@ static const unsigned char partab[256] = {
 
 static void set_sign_zero(int result) {
    flag_s  = (result >> 7) & 1;
+   flag_z  = ((result & 0xff) == 0);
    flag_f5 = (result >> 5) & 1;
    flag_f3 = (result >> 3) & 1;
-   flag_z  = ((result & 0xff) == 0);
 }
 
+static void set_flags_undefined() {
+   flag_s  = -1;
+   flag_z  = -1;
+   flag_f5 = -1;
+   flag_h  = -1;
+   flag_f3 = -1;
+   flag_pv = -1;
+   flag_n  = -1;
+   flag_c  = -1;
+}
 static void swap(int *reg1, int *reg2) {
    int tmp;
    tmp = *reg1;
@@ -214,11 +224,7 @@ static void op_alu(InstrType *instr) {
          reg_a   = result & 0xff;
       } else {
          reg_a   = -1;
-         flag_s  = -1;
-         flag_z  = -1;
-         flag_h  = -1;
-         flag_pv = -1;
-         flag_c  = -1;
+         set_flags_undefined();
       }
       flag_n = 0;
       break;
@@ -237,11 +243,7 @@ static void op_alu(InstrType *instr) {
          reg_a   = result & 0xff;
       } else {
          reg_a   = -1;
-         flag_s  = -1;
-         flag_z  = -1;
-         flag_h  = -1;
-         flag_pv = -1;
-         flag_c  = -1;
+         set_flags_undefined();
       }
       flag_n = 0;
       break;
@@ -253,6 +255,7 @@ static void op_alu(InstrType *instr) {
          flag_pv = partab[reg_a];
       } else {
          reg_a = -1;
+         set_flags_undefined();
          flag_pv = -1;
       }
       flag_c = 0;
@@ -267,6 +270,7 @@ static void op_alu(InstrType *instr) {
          flag_pv = partab[reg_a];
       } else {
          reg_a = -1;
+         set_flags_undefined();
          flag_pv = -1;
       }
       flag_c = 0;
@@ -281,7 +285,7 @@ static void op_alu(InstrType *instr) {
          flag_pv = partab[reg_a];
       } else {
          reg_a = -1;
-         flag_pv = -1;
+         set_flags_undefined();
       }
       flag_c = 0;
       flag_n = 0;
@@ -291,18 +295,14 @@ static void op_alu(InstrType *instr) {
       // CP
       if (reg_a >= 0 && operand >= 0) {
          result  = reg_a - operand;
-         set_sign_zero(result);
+         set_sign_zero(result); // TODO: f5 and f3 should be set from operand
          cbits   = reg_a ^ operand ^ result;
          flag_c  = (cbits >> 8) & 1;
          flag_h  = (cbits >> 4) & 1;
          flag_pv = ((cbits >> 8) ^ (cbits >> 7)) & 1;
       } else {
          reg_a   = -1;
-         flag_s  = -1;
-         flag_z  = -1;
-         flag_h  = -1;
-         flag_pv = -1;
-         flag_c  = -1;
+         set_flags_undefined();
       }
       flag_n = 1;
       break;
@@ -441,6 +441,147 @@ static void op_store_mem_16(InstrType *instr) {
       break;
    }
    update_pc();
+}
+
+static void op_bit(InstrType *instr) {
+   int reg_id   = opcode & 7;
+   int major_op = (opcode >> 6) & 3;
+   int minor_op = (opcode >> 3) & 7;
+   int operand  = (prefix == 0xcb) ? *reg_ptr[reg_id] : arg_read;
+
+   // If the operand is undefined (i.e. a register whose value is unknown)
+   // then deal with the flags up front, and exit
+   if (operand < 0) {
+
+      switch (major_op) {
+      case 0:
+         // Rotate / Shift
+         flag_s  = -1;
+         flag_z  = -1;
+         flag_f5 = -1;
+         flag_h  =  0;
+         flag_f3 = -1;
+         flag_pv = -1;
+         flag_n  =  0;
+         flag_c = -1;
+         break;
+
+      case 1:
+         // BIT
+         flag_s  = -1;
+         flag_z  = -1;
+         flag_f5 = -1;
+         flag_h  =  1;
+         flag_f3 = -1;
+         flag_pv = -1;
+         flag_n  =  0;
+         break;
+
+      case 2:
+         // RES
+         // no effect on flags
+         break;
+
+      case 3:
+         // SET
+         // no effect on flags
+         break;
+      }
+
+   } else {
+
+      int result;
+
+      switch (major_op) {
+
+      case 0:
+         // Rotate / Shift
+         switch (minor_op) {
+         case 0:
+            // RLC
+            result = (operand << 1) | (operand >> 7);
+            flag_c = (operand >> 7) & 1;
+            break;
+         case 1:
+            // RRC
+            result = (operand >> 1) | (operand << 7);
+            flag_c = operand & 1;
+            break;
+         case 2:
+            // RL
+            if (flag_c >= 0) {
+               result = (operand << 1) | flag_c;
+            } else {
+               result = -1;
+            }
+            flag_c = (operand >> 7) & 1;
+            break;
+         case 3:
+            // RR
+            if (flag_c >= 0) {
+               result = (flag_c << 7) | (operand >> 1);
+            } else {
+               result = -1;
+            }
+            flag_c = operand & 1;
+            break;
+         case 4:
+            // SLA
+            result = operand << 1;
+            flag_c = (operand >> 7) & 1;
+            break;
+         case 5:
+            // SRA
+            result = (operand & 0x80) | (operand >> 1);
+            flag_c = operand & 1;
+            break;
+         case 6:
+            // SLL
+            result = (operand << 1) | 1;
+            flag_c = (operand >> 7) & 1;
+            break;
+         case 7:
+            // SRL
+            result = operand >> 1;
+            flag_c = operand & 1;
+            break;
+         }
+         result &= 0xff;
+         set_sign_zero(result);
+         flag_pv = partab[result];
+         flag_h = 0;
+         flag_n = 0;
+         break;
+
+      case 1:
+         // BIT
+         result = operand & ~(1 << minor_op);
+         set_sign_zero(result);
+         flag_h = 1;
+         flag_n = 0;
+         flag_pv = flag_z;
+         break;
+
+      case 2:
+         // RES
+         result = operand & ~(1 << minor_op);
+         break;
+
+      case 3:
+         // SET
+         result = operand | (1 << minor_op);
+         break;
+      }
+      if (major_op != 1) {
+         if (reg_id == ID_MEMORY) {
+            if (arg_write != result) {
+               failflag = 1;
+            }
+         } else {
+            *reg_ptr[reg_id] = result;
+         }
+      }
+   }
 }
 
 //Instruction tuple: (d, i, ro, wo, conditional, format type, format string, emulate method)
@@ -1015,277 +1156,277 @@ InstrType extended_instructions[256] = {
 
 // Instructions with CB prefix
 InstrType bit_instructions[256] = {
-   {0, 0, 0, 0, False, TYPE_0, "RLC B",             NULL            }, // 0x00
-   {0, 0, 0, 0, False, TYPE_0, "RLC C",             NULL            }, // 0x01
-   {0, 0, 0, 0, False, TYPE_0, "RLC D",             NULL            }, // 0x02
-   {0, 0, 0, 0, False, TYPE_0, "RLC E",             NULL            }, // 0x03
-   {0, 0, 0, 0, False, TYPE_0, "RLC H",             NULL            }, // 0x04
-   {0, 0, 0, 0, False, TYPE_0, "RLC L",             NULL            }, // 0x05
-   {0, 0, 1, 1, False, TYPE_0, "RLC (HL)",          NULL            }, // 0x06
-   {0, 0, 0, 0, False, TYPE_0, "RLC A",             NULL            }, // 0x07
-   {0, 0, 0, 0, False, TYPE_0, "RRC B",             NULL            }, // 0x08
-   {0, 0, 0, 0, False, TYPE_0, "RRC C",             NULL            }, // 0x09
-   {0, 0, 0, 0, False, TYPE_0, "RRC D",             NULL            }, // 0x0A
-   {0, 0, 0, 0, False, TYPE_0, "RRC E",             NULL            }, // 0x0B
-   {0, 0, 0, 0, False, TYPE_0, "RRC H",             NULL            }, // 0x0C
-   {0, 0, 0, 0, False, TYPE_0, "RRC L",             NULL            }, // 0x0D
-   {0, 0, 1, 1, False, TYPE_0, "RRC (HL)",          NULL            }, // 0x0E
-   {0, 0, 0, 0, False, TYPE_0, "RRC A",             NULL            }, // 0x0F
+   {0, 0, 0, 0, False, TYPE_0, "RLC B",             op_bit          }, // 0x00
+   {0, 0, 0, 0, False, TYPE_0, "RLC C",             op_bit          }, // 0x01
+   {0, 0, 0, 0, False, TYPE_0, "RLC D",             op_bit          }, // 0x02
+   {0, 0, 0, 0, False, TYPE_0, "RLC E",             op_bit          }, // 0x03
+   {0, 0, 0, 0, False, TYPE_0, "RLC H",             op_bit          }, // 0x04
+   {0, 0, 0, 0, False, TYPE_0, "RLC L",             op_bit          }, // 0x05
+   {0, 0, 1, 1, False, TYPE_0, "RLC (HL)",          op_bit          }, // 0x06
+   {0, 0, 0, 0, False, TYPE_0, "RLC A",             op_bit          }, // 0x07
+   {0, 0, 0, 0, False, TYPE_0, "RRC B",             op_bit          }, // 0x08
+   {0, 0, 0, 0, False, TYPE_0, "RRC C",             op_bit          }, // 0x09
+   {0, 0, 0, 0, False, TYPE_0, "RRC D",             op_bit          }, // 0x0A
+   {0, 0, 0, 0, False, TYPE_0, "RRC E",             op_bit          }, // 0x0B
+   {0, 0, 0, 0, False, TYPE_0, "RRC H",             op_bit          }, // 0x0C
+   {0, 0, 0, 0, False, TYPE_0, "RRC L",             op_bit          }, // 0x0D
+   {0, 0, 1, 1, False, TYPE_0, "RRC (HL)",          op_bit          }, // 0x0E
+   {0, 0, 0, 0, False, TYPE_0, "RRC A",             op_bit          }, // 0x0F
 
-   {0, 0, 0, 0, False, TYPE_0, "RL B",              NULL            }, // 0x10
-   {0, 0, 0, 0, False, TYPE_0, "RL C",              NULL            }, // 0x11
-   {0, 0, 0, 0, False, TYPE_0, "RL D",              NULL            }, // 0x12
-   {0, 0, 0, 0, False, TYPE_0, "RL E",              NULL            }, // 0x13
-   {0, 0, 0, 0, False, TYPE_0, "RL H",              NULL            }, // 0x14
-   {0, 0, 0, 0, False, TYPE_0, "RL L",              NULL            }, // 0x15
-   {0, 0, 1, 1, False, TYPE_0, "RL (HL)",           NULL            }, // 0x16
-   {0, 0, 0, 0, False, TYPE_0, "RL A",              NULL            }, // 0x17
-   {0, 0, 0, 0, False, TYPE_0, "RR B",              NULL            }, // 0x18
-   {0, 0, 0, 0, False, TYPE_0, "RR C",              NULL            }, // 0x19
-   {0, 0, 0, 0, False, TYPE_0, "RR D",              NULL            }, // 0x1A
-   {0, 0, 0, 0, False, TYPE_0, "RR E",              NULL            }, // 0x1B
-   {0, 0, 0, 0, False, TYPE_0, "RR H",              NULL            }, // 0x1C
-   {0, 0, 0, 0, False, TYPE_0, "RR L",              NULL            }, // 0x1D
-   {0, 0, 1, 1, False, TYPE_0, "RR (HL)",           NULL            }, // 0x1E
-   {0, 0, 0, 0, False, TYPE_0, "RR A",              NULL            }, // 0x1F
+   {0, 0, 0, 0, False, TYPE_0, "RL B",              op_bit          }, // 0x10
+   {0, 0, 0, 0, False, TYPE_0, "RL C",              op_bit          }, // 0x11
+   {0, 0, 0, 0, False, TYPE_0, "RL D",              op_bit          }, // 0x12
+   {0, 0, 0, 0, False, TYPE_0, "RL E",              op_bit          }, // 0x13
+   {0, 0, 0, 0, False, TYPE_0, "RL H",              op_bit          }, // 0x14
+   {0, 0, 0, 0, False, TYPE_0, "RL L",              op_bit          }, // 0x15
+   {0, 0, 1, 1, False, TYPE_0, "RL (HL)",           op_bit          }, // 0x16
+   {0, 0, 0, 0, False, TYPE_0, "RL A",              op_bit          }, // 0x17
+   {0, 0, 0, 0, False, TYPE_0, "RR B",              op_bit          }, // 0x18
+   {0, 0, 0, 0, False, TYPE_0, "RR C",              op_bit          }, // 0x19
+   {0, 0, 0, 0, False, TYPE_0, "RR D",              op_bit          }, // 0x1A
+   {0, 0, 0, 0, False, TYPE_0, "RR E",              op_bit          }, // 0x1B
+   {0, 0, 0, 0, False, TYPE_0, "RR H",              op_bit          }, // 0x1C
+   {0, 0, 0, 0, False, TYPE_0, "RR L",              op_bit          }, // 0x1D
+   {0, 0, 1, 1, False, TYPE_0, "RR (HL)",           op_bit          }, // 0x1E
+   {0, 0, 0, 0, False, TYPE_0, "RR A",              op_bit          }, // 0x1F
 
-   {0, 0, 0, 0, False, TYPE_0, "SLA B",             NULL            }, // 0x20
-   {0, 0, 0, 0, False, TYPE_0, "SLA C",             NULL            }, // 0x21
-   {0, 0, 0, 0, False, TYPE_0, "SLA D",             NULL            }, // 0x22
-   {0, 0, 0, 0, False, TYPE_0, "SLA E",             NULL            }, // 0x23
-   {0, 0, 0, 0, False, TYPE_0, "SLA H",             NULL            }, // 0x24
-   {0, 0, 0, 0, False, TYPE_0, "SLA L",             NULL            }, // 0x25
-   {0, 0, 1, 1, False, TYPE_0, "SLA (HL)",          NULL            }, // 0x26
-   {0, 0, 0, 0, False, TYPE_0, "SLA A",             NULL            }, // 0x27
-   {0, 0, 0, 0, False, TYPE_0, "SRA B",             NULL            }, // 0x28
-   {0, 0, 0, 0, False, TYPE_0, "SRA C",             NULL            }, // 0x29
-   {0, 0, 0, 0, False, TYPE_0, "SRA D",             NULL            }, // 0x2A
-   {0, 0, 0, 0, False, TYPE_0, "SRA E",             NULL            }, // 0x2B
-   {0, 0, 0, 0, False, TYPE_0, "SRA H",             NULL            }, // 0x2C
-   {0, 0, 0, 0, False, TYPE_0, "SRA L",             NULL            }, // 0x2D
-   {0, 0, 1, 1, False, TYPE_0, "SRA (HL)",          NULL            }, // 0x2E
-   {0, 0, 0, 0, False, TYPE_0, "SRA A",             NULL            }, // 0x2F
+   {0, 0, 0, 0, False, TYPE_0, "SLA B",             op_bit          }, // 0x20
+   {0, 0, 0, 0, False, TYPE_0, "SLA C",             op_bit          }, // 0x21
+   {0, 0, 0, 0, False, TYPE_0, "SLA D",             op_bit          }, // 0x22
+   {0, 0, 0, 0, False, TYPE_0, "SLA E",             op_bit          }, // 0x23
+   {0, 0, 0, 0, False, TYPE_0, "SLA H",             op_bit          }, // 0x24
+   {0, 0, 0, 0, False, TYPE_0, "SLA L",             op_bit          }, // 0x25
+   {0, 0, 1, 1, False, TYPE_0, "SLA (HL)",          op_bit          }, // 0x26
+   {0, 0, 0, 0, False, TYPE_0, "SLA A",             op_bit          }, // 0x27
+   {0, 0, 0, 0, False, TYPE_0, "SRA B",             op_bit          }, // 0x28
+   {0, 0, 0, 0, False, TYPE_0, "SRA C",             op_bit          }, // 0x29
+   {0, 0, 0, 0, False, TYPE_0, "SRA D",             op_bit          }, // 0x2A
+   {0, 0, 0, 0, False, TYPE_0, "SRA E",             op_bit          }, // 0x2B
+   {0, 0, 0, 0, False, TYPE_0, "SRA H",             op_bit          }, // 0x2C
+   {0, 0, 0, 0, False, TYPE_0, "SRA L",             op_bit          }, // 0x2D
+   {0, 0, 1, 1, False, TYPE_0, "SRA (HL)",          op_bit          }, // 0x2E
+   {0, 0, 0, 0, False, TYPE_0, "SRA A",             op_bit          }, // 0x2F
 
-   {0, 0, 0, 0, False, TYPE_0, "SLL B",             NULL            }, // 0x30
-   {0, 0, 0, 0, False, TYPE_0, "SLL C",             NULL            }, // 0x31
-   {0, 0, 0, 0, False, TYPE_0, "SLL D",             NULL            }, // 0x32
-   {0, 0, 0, 0, False, TYPE_0, "SLL E",             NULL            }, // 0x33
-   {0, 0, 0, 0, False, TYPE_0, "SLL H",             NULL            }, // 0x34
-   {0, 0, 0, 0, False, TYPE_0, "SLL L",             NULL            }, // 0x35
-   {0, 0, 1, 1, False, TYPE_0, "SLL (HL)",          NULL            }, // 0x36
-   {0, 0, 0, 0, False, TYPE_0, "SLL A",             NULL            }, // 0x37
-   {0, 0, 0, 0, False, TYPE_0, "SRL B",             NULL            }, // 0x38
-   {0, 0, 0, 0, False, TYPE_0, "SRL C",             NULL            }, // 0x39
-   {0, 0, 0, 0, False, TYPE_0, "SRL D",             NULL            }, // 0x3A
-   {0, 0, 0, 0, False, TYPE_0, "SRL E",             NULL            }, // 0x3B
-   {0, 0, 0, 0, False, TYPE_0, "SRL H",             NULL            }, // 0x3C
-   {0, 0, 0, 0, False, TYPE_0, "SRL L",             NULL            }, // 0x3D
-   {0, 0, 1, 1, False, TYPE_0, "SRL (HL)",          NULL            }, // 0x3E
-   {0, 0, 0, 0, False, TYPE_0, "SRL A",             NULL            }, // 0x3F
+   {0, 0, 0, 0, False, TYPE_0, "SLL B",             op_bit          }, // 0x30
+   {0, 0, 0, 0, False, TYPE_0, "SLL C",             op_bit          }, // 0x31
+   {0, 0, 0, 0, False, TYPE_0, "SLL D",             op_bit          }, // 0x32
+   {0, 0, 0, 0, False, TYPE_0, "SLL E",             op_bit          }, // 0x33
+   {0, 0, 0, 0, False, TYPE_0, "SLL H",             op_bit          }, // 0x34
+   {0, 0, 0, 0, False, TYPE_0, "SLL L",             op_bit          }, // 0x35
+   {0, 0, 1, 1, False, TYPE_0, "SLL (HL)",          op_bit          }, // 0x36
+   {0, 0, 0, 0, False, TYPE_0, "SLL A",             op_bit          }, // 0x37
+   {0, 0, 0, 0, False, TYPE_0, "SRL B",             op_bit          }, // 0x38
+   {0, 0, 0, 0, False, TYPE_0, "SRL C",             op_bit          }, // 0x39
+   {0, 0, 0, 0, False, TYPE_0, "SRL D",             op_bit          }, // 0x3A
+   {0, 0, 0, 0, False, TYPE_0, "SRL E",             op_bit          }, // 0x3B
+   {0, 0, 0, 0, False, TYPE_0, "SRL H",             op_bit          }, // 0x3C
+   {0, 0, 0, 0, False, TYPE_0, "SRL L",             op_bit          }, // 0x3D
+   {0, 0, 1, 1, False, TYPE_0, "SRL (HL)",          op_bit          }, // 0x3E
+   {0, 0, 0, 0, False, TYPE_0, "SRL A",             op_bit          }, // 0x3F
 
-   {0, 0, 0, 0, False, TYPE_0, "BIT 0,B",           NULL            }, // 0x40
-   {0, 0, 0, 0, False, TYPE_0, "BIT 0,C",           NULL            }, // 0x41
-   {0, 0, 0, 0, False, TYPE_0, "BIT 0,D",           NULL            }, // 0x42
-   {0, 0, 0, 0, False, TYPE_0, "BIT 0,E",           NULL            }, // 0x43
-   {0, 0, 0, 0, False, TYPE_0, "BIT 0,H",           NULL            }, // 0x44
-   {0, 0, 0, 0, False, TYPE_0, "BIT 0,L",           NULL            }, // 0x45
-   {0, 0, 1, 0, False, TYPE_0, "BIT 0,(HL)",        NULL            }, // 0x46
-   {0, 0, 0, 0, False, TYPE_0, "BIT 0,A",           NULL            }, // 0x47
-   {0, 0, 0, 0, False, TYPE_0, "BIT 1,B",           NULL            }, // 0x48
-   {0, 0, 0, 0, False, TYPE_0, "BIT 1,C",           NULL            }, // 0x49
-   {0, 0, 0, 0, False, TYPE_0, "BIT 1,D",           NULL            }, // 0x4A
-   {0, 0, 0, 0, False, TYPE_0, "BIT 1,E",           NULL            }, // 0x4B
-   {0, 0, 0, 0, False, TYPE_0, "BIT 1,H",           NULL            }, // 0x4C
-   {0, 0, 0, 0, False, TYPE_0, "BIT 1,L",           NULL            }, // 0x4D
-   {0, 0, 1, 0, False, TYPE_0, "BIT 1,(HL)",        NULL            }, // 0x4E
-   {0, 0, 0, 0, False, TYPE_0, "BIT 1,A",           NULL            }, // 0x4F
+   {0, 0, 0, 0, False, TYPE_0, "BIT 0,B",           op_bit          }, // 0x40
+   {0, 0, 0, 0, False, TYPE_0, "BIT 0,C",           op_bit          }, // 0x41
+   {0, 0, 0, 0, False, TYPE_0, "BIT 0,D",           op_bit          }, // 0x42
+   {0, 0, 0, 0, False, TYPE_0, "BIT 0,E",           op_bit          }, // 0x43
+   {0, 0, 0, 0, False, TYPE_0, "BIT 0,H",           op_bit          }, // 0x44
+   {0, 0, 0, 0, False, TYPE_0, "BIT 0,L",           op_bit          }, // 0x45
+   {0, 0, 1, 0, False, TYPE_0, "BIT 0,(HL)",        op_bit          }, // 0x46
+   {0, 0, 0, 0, False, TYPE_0, "BIT 0,A",           op_bit          }, // 0x47
+   {0, 0, 0, 0, False, TYPE_0, "BIT 1,B",           op_bit          }, // 0x48
+   {0, 0, 0, 0, False, TYPE_0, "BIT 1,C",           op_bit          }, // 0x49
+   {0, 0, 0, 0, False, TYPE_0, "BIT 1,D",           op_bit          }, // 0x4A
+   {0, 0, 0, 0, False, TYPE_0, "BIT 1,E",           op_bit          }, // 0x4B
+   {0, 0, 0, 0, False, TYPE_0, "BIT 1,H",           op_bit          }, // 0x4C
+   {0, 0, 0, 0, False, TYPE_0, "BIT 1,L",           op_bit          }, // 0x4D
+   {0, 0, 1, 0, False, TYPE_0, "BIT 1,(HL)",        op_bit          }, // 0x4E
+   {0, 0, 0, 0, False, TYPE_0, "BIT 1,A",           op_bit          }, // 0x4F
 
-   {0, 0, 0, 0, False, TYPE_0, "BIT 2,B",           NULL            }, // 0x50
-   {0, 0, 0, 0, False, TYPE_0, "BIT 2,C",           NULL            }, // 0x51
-   {0, 0, 0, 0, False, TYPE_0, "BIT 2,D",           NULL            }, // 0x52
-   {0, 0, 0, 0, False, TYPE_0, "BIT 2,E",           NULL            }, // 0x53
-   {0, 0, 0, 0, False, TYPE_0, "BIT 2,H",           NULL            }, // 0x54
-   {0, 0, 0, 0, False, TYPE_0, "BIT 2,L",           NULL            }, // 0x55
-   {0, 0, 1, 0, False, TYPE_0, "BIT 2,(HL)",        NULL            }, // 0x56
-   {0, 0, 0, 0, False, TYPE_0, "BIT 2,A",           NULL            }, // 0x57
-   {0, 0, 0, 0, False, TYPE_0, "BIT 3,B",           NULL            }, // 0x58
-   {0, 0, 0, 0, False, TYPE_0, "BIT 3,C",           NULL            }, // 0x59
-   {0, 0, 0, 0, False, TYPE_0, "BIT 3,D",           NULL            }, // 0x5A
-   {0, 0, 0, 0, False, TYPE_0, "BIT 3,E",           NULL            }, // 0x5B
-   {0, 0, 0, 0, False, TYPE_0, "BIT 3,H",           NULL            }, // 0x5C
-   {0, 0, 0, 0, False, TYPE_0, "BIT 3,L",           NULL            }, // 0x5D
-   {0, 0, 1, 0, False, TYPE_0, "BIT 3,(HL)",        NULL            }, // 0x5E
-   {0, 0, 0, 0, False, TYPE_0, "BIT 3,A",           NULL            }, // 0x5F
+   {0, 0, 0, 0, False, TYPE_0, "BIT 2,B",           op_bit          }, // 0x50
+   {0, 0, 0, 0, False, TYPE_0, "BIT 2,C",           op_bit          }, // 0x51
+   {0, 0, 0, 0, False, TYPE_0, "BIT 2,D",           op_bit          }, // 0x52
+   {0, 0, 0, 0, False, TYPE_0, "BIT 2,E",           op_bit          }, // 0x53
+   {0, 0, 0, 0, False, TYPE_0, "BIT 2,H",           op_bit          }, // 0x54
+   {0, 0, 0, 0, False, TYPE_0, "BIT 2,L",           op_bit          }, // 0x55
+   {0, 0, 1, 0, False, TYPE_0, "BIT 2,(HL)",        op_bit          }, // 0x56
+   {0, 0, 0, 0, False, TYPE_0, "BIT 2,A",           op_bit          }, // 0x57
+   {0, 0, 0, 0, False, TYPE_0, "BIT 3,B",           op_bit          }, // 0x58
+   {0, 0, 0, 0, False, TYPE_0, "BIT 3,C",           op_bit          }, // 0x59
+   {0, 0, 0, 0, False, TYPE_0, "BIT 3,D",           op_bit          }, // 0x5A
+   {0, 0, 0, 0, False, TYPE_0, "BIT 3,E",           op_bit          }, // 0x5B
+   {0, 0, 0, 0, False, TYPE_0, "BIT 3,H",           op_bit          }, // 0x5C
+   {0, 0, 0, 0, False, TYPE_0, "BIT 3,L",           op_bit          }, // 0x5D
+   {0, 0, 1, 0, False, TYPE_0, "BIT 3,(HL)",        op_bit          }, // 0x5E
+   {0, 0, 0, 0, False, TYPE_0, "BIT 3,A",           op_bit          }, // 0x5F
 
-   {0, 0, 0, 0, False, TYPE_0, "BIT 4,B",           NULL            }, // 0x60
-   {0, 0, 0, 0, False, TYPE_0, "BIT 4,C",           NULL            }, // 0x61
-   {0, 0, 0, 0, False, TYPE_0, "BIT 4,D",           NULL            }, // 0x62
-   {0, 0, 0, 0, False, TYPE_0, "BIT 4,E",           NULL            }, // 0x63
-   {0, 0, 0, 0, False, TYPE_0, "BIT 4,H",           NULL            }, // 0x64
-   {0, 0, 0, 0, False, TYPE_0, "BIT 4,L",           NULL            }, // 0x65
-   {0, 0, 1, 0, False, TYPE_0, "BIT 4,(HL)",        NULL            }, // 0x66
-   {0, 0, 0, 0, False, TYPE_0, "BIT 4,A",           NULL            }, // 0x67
-   {0, 0, 0, 0, False, TYPE_0, "BIT 5,B",           NULL            }, // 0x68
-   {0, 0, 0, 0, False, TYPE_0, "BIT 5,C",           NULL            }, // 0x69
-   {0, 0, 0, 0, False, TYPE_0, "BIT 5,D",           NULL            }, // 0x6A
-   {0, 0, 0, 0, False, TYPE_0, "BIT 5,E",           NULL            }, // 0x6B
-   {0, 0, 0, 0, False, TYPE_0, "BIT 5,H",           NULL            }, // 0x6C
-   {0, 0, 0, 0, False, TYPE_0, "BIT 5,L",           NULL            }, // 0x6D
-   {0, 0, 1, 0, False, TYPE_0, "BIT 5,(HL)",        NULL            }, // 0x6E
-   {0, 0, 0, 0, False, TYPE_0, "BIT 5,A",           NULL            }, // 0x6F
+   {0, 0, 0, 0, False, TYPE_0, "BIT 4,B",           op_bit          }, // 0x60
+   {0, 0, 0, 0, False, TYPE_0, "BIT 4,C",           op_bit          }, // 0x61
+   {0, 0, 0, 0, False, TYPE_0, "BIT 4,D",           op_bit          }, // 0x62
+   {0, 0, 0, 0, False, TYPE_0, "BIT 4,E",           op_bit          }, // 0x63
+   {0, 0, 0, 0, False, TYPE_0, "BIT 4,H",           op_bit          }, // 0x64
+   {0, 0, 0, 0, False, TYPE_0, "BIT 4,L",           op_bit          }, // 0x65
+   {0, 0, 1, 0, False, TYPE_0, "BIT 4,(HL)",        op_bit          }, // 0x66
+   {0, 0, 0, 0, False, TYPE_0, "BIT 4,A",           op_bit          }, // 0x67
+   {0, 0, 0, 0, False, TYPE_0, "BIT 5,B",           op_bit          }, // 0x68
+   {0, 0, 0, 0, False, TYPE_0, "BIT 5,C",           op_bit          }, // 0x69
+   {0, 0, 0, 0, False, TYPE_0, "BIT 5,D",           op_bit          }, // 0x6A
+   {0, 0, 0, 0, False, TYPE_0, "BIT 5,E",           op_bit          }, // 0x6B
+   {0, 0, 0, 0, False, TYPE_0, "BIT 5,H",           op_bit          }, // 0x6C
+   {0, 0, 0, 0, False, TYPE_0, "BIT 5,L",           op_bit          }, // 0x6D
+   {0, 0, 1, 0, False, TYPE_0, "BIT 5,(HL)",        op_bit          }, // 0x6E
+   {0, 0, 0, 0, False, TYPE_0, "BIT 5,A",           op_bit          }, // 0x6F
 
-   {0, 0, 0, 0, False, TYPE_0, "BIT 6,B",           NULL            }, // 0x70
-   {0, 0, 0, 0, False, TYPE_0, "BIT 6,C",           NULL            }, // 0x71
-   {0, 0, 0, 0, False, TYPE_0, "BIT 6,D",           NULL            }, // 0x72
-   {0, 0, 0, 0, False, TYPE_0, "BIT 6,E",           NULL            }, // 0x73
-   {0, 0, 0, 0, False, TYPE_0, "BIT 6,H",           NULL            }, // 0x74
-   {0, 0, 0, 0, False, TYPE_0, "BIT 6,L",           NULL            }, // 0x75
-   {0, 0, 1, 0, False, TYPE_0, "BIT 6,(HL)",        NULL            }, // 0x76
-   {0, 0, 0, 0, False, TYPE_0, "BIT 6,A",           NULL            }, // 0x77
-   {0, 0, 0, 0, False, TYPE_0, "BIT 7,B",           NULL            }, // 0x78
-   {0, 0, 0, 0, False, TYPE_0, "BIT 7,C",           NULL            }, // 0x79
-   {0, 0, 0, 0, False, TYPE_0, "BIT 7,D",           NULL            }, // 0x7A
-   {0, 0, 0, 0, False, TYPE_0, "BIT 7,E",           NULL            }, // 0x7B
-   {0, 0, 0, 0, False, TYPE_0, "BIT 7,H",           NULL            }, // 0x7C
-   {0, 0, 0, 0, False, TYPE_0, "BIT 7,L",           NULL            }, // 0x7D
-   {0, 0, 1, 0, False, TYPE_0, "BIT 7,(HL)",        NULL            }, // 0x7E
-   {0, 0, 0, 0, False, TYPE_0, "BIT 7,A",           NULL            }, // 0x7F
+   {0, 0, 0, 0, False, TYPE_0, "BIT 6,B",           op_bit          }, // 0x70
+   {0, 0, 0, 0, False, TYPE_0, "BIT 6,C",           op_bit          }, // 0x71
+   {0, 0, 0, 0, False, TYPE_0, "BIT 6,D",           op_bit          }, // 0x72
+   {0, 0, 0, 0, False, TYPE_0, "BIT 6,E",           op_bit          }, // 0x73
+   {0, 0, 0, 0, False, TYPE_0, "BIT 6,H",           op_bit          }, // 0x74
+   {0, 0, 0, 0, False, TYPE_0, "BIT 6,L",           op_bit          }, // 0x75
+   {0, 0, 1, 0, False, TYPE_0, "BIT 6,(HL)",        op_bit          }, // 0x76
+   {0, 0, 0, 0, False, TYPE_0, "BIT 6,A",           op_bit          }, // 0x77
+   {0, 0, 0, 0, False, TYPE_0, "BIT 7,B",           op_bit          }, // 0x78
+   {0, 0, 0, 0, False, TYPE_0, "BIT 7,C",           op_bit          }, // 0x79
+   {0, 0, 0, 0, False, TYPE_0, "BIT 7,D",           op_bit          }, // 0x7A
+   {0, 0, 0, 0, False, TYPE_0, "BIT 7,E",           op_bit          }, // 0x7B
+   {0, 0, 0, 0, False, TYPE_0, "BIT 7,H",           op_bit          }, // 0x7C
+   {0, 0, 0, 0, False, TYPE_0, "BIT 7,L",           op_bit          }, // 0x7D
+   {0, 0, 1, 0, False, TYPE_0, "BIT 7,(HL)",        op_bit          }, // 0x7E
+   {0, 0, 0, 0, False, TYPE_0, "BIT 7,A",           op_bit          }, // 0x7F
 
-   {0, 0, 0, 0, False, TYPE_0, "RES 0,B",           NULL            }, // 0x80
-   {0, 0, 0, 0, False, TYPE_0, "RES 0,C",           NULL            }, // 0x81
-   {0, 0, 0, 0, False, TYPE_0, "RES 0,D",           NULL            }, // 0x82
-   {0, 0, 0, 0, False, TYPE_0, "RES 0,E",           NULL            }, // 0x83
-   {0, 0, 0, 0, False, TYPE_0, "RES 0,H",           NULL            }, // 0x84
-   {0, 0, 0, 0, False, TYPE_0, "RES 0,L",           NULL            }, // 0x85
-   {0, 0, 1, 1, False, TYPE_0, "RES 0,(HL)",        NULL            }, // 0x86
-   {0, 0, 0, 0, False, TYPE_0, "RES 0,A",           NULL            }, // 0x87
-   {0, 0, 0, 0, False, TYPE_0, "RES 1,B",           NULL            }, // 0x88
-   {0, 0, 0, 0, False, TYPE_0, "RES 1,C",           NULL            }, // 0x89
-   {0, 0, 0, 0, False, TYPE_0, "RES 1,D",           NULL            }, // 0x8A
-   {0, 0, 0, 0, False, TYPE_0, "RES 1,E",           NULL            }, // 0x8B
-   {0, 0, 0, 0, False, TYPE_0, "RES 1,H",           NULL            }, // 0x8C
-   {0, 0, 0, 0, False, TYPE_0, "RES 1,L",           NULL            }, // 0x8D
-   {0, 0, 1, 1, False, TYPE_0, "RES 1,(HL)",        NULL            }, // 0x8E
-   {0, 0, 0, 0, False, TYPE_0, "RES 1,A",           NULL            }, // 0x8F
+   {0, 0, 0, 0, False, TYPE_0, "RES 0,B",           op_bit          }, // 0x80
+   {0, 0, 0, 0, False, TYPE_0, "RES 0,C",           op_bit          }, // 0x81
+   {0, 0, 0, 0, False, TYPE_0, "RES 0,D",           op_bit          }, // 0x82
+   {0, 0, 0, 0, False, TYPE_0, "RES 0,E",           op_bit          }, // 0x83
+   {0, 0, 0, 0, False, TYPE_0, "RES 0,H",           op_bit          }, // 0x84
+   {0, 0, 0, 0, False, TYPE_0, "RES 0,L",           op_bit          }, // 0x85
+   {0, 0, 1, 1, False, TYPE_0, "RES 0,(HL)",        op_bit          }, // 0x86
+   {0, 0, 0, 0, False, TYPE_0, "RES 0,A",           op_bit          }, // 0x87
+   {0, 0, 0, 0, False, TYPE_0, "RES 1,B",           op_bit          }, // 0x88
+   {0, 0, 0, 0, False, TYPE_0, "RES 1,C",           op_bit          }, // 0x89
+   {0, 0, 0, 0, False, TYPE_0, "RES 1,D",           op_bit          }, // 0x8A
+   {0, 0, 0, 0, False, TYPE_0, "RES 1,E",           op_bit          }, // 0x8B
+   {0, 0, 0, 0, False, TYPE_0, "RES 1,H",           op_bit          }, // 0x8C
+   {0, 0, 0, 0, False, TYPE_0, "RES 1,L",           op_bit          }, // 0x8D
+   {0, 0, 1, 1, False, TYPE_0, "RES 1,(HL)",        op_bit          }, // 0x8E
+   {0, 0, 0, 0, False, TYPE_0, "RES 1,A",           op_bit          }, // 0x8F
 
-   {0, 0, 0, 0, False, TYPE_0, "RES 2,B",           NULL            }, // 0x90
-   {0, 0, 0, 0, False, TYPE_0, "RES 2,C",           NULL            }, // 0x91
-   {0, 0, 0, 0, False, TYPE_0, "RES 2,D",           NULL            }, // 0x92
-   {0, 0, 0, 0, False, TYPE_0, "RES 2,E",           NULL            }, // 0x93
-   {0, 0, 0, 0, False, TYPE_0, "RES 2,H",           NULL            }, // 0x94
-   {0, 0, 0, 0, False, TYPE_0, "RES 2,L",           NULL            }, // 0x95
-   {0, 0, 1, 1, False, TYPE_0, "RES 2,(HL)",        NULL            }, // 0x96
-   {0, 0, 0, 0, False, TYPE_0, "RES 2,A",           NULL            }, // 0x97
-   {0, 0, 0, 0, False, TYPE_0, "RES 3,B",           NULL            }, // 0x98
-   {0, 0, 0, 0, False, TYPE_0, "RES 3,C",           NULL            }, // 0x99
-   {0, 0, 0, 0, False, TYPE_0, "RES 3,D",           NULL            }, // 0x9A
-   {0, 0, 0, 0, False, TYPE_0, "RES 3,E",           NULL            }, // 0x9B
-   {0, 0, 0, 0, False, TYPE_0, "RES 3,H",           NULL            }, // 0x9C
-   {0, 0, 0, 0, False, TYPE_0, "RES 3,L",           NULL            }, // 0x9D
-   {0, 0, 1, 1, False, TYPE_0, "RES 3,(HL)",        NULL            }, // 0x9E
-   {0, 0, 0, 0, False, TYPE_0, "RES 3,A",           NULL            }, // 0x9F
+   {0, 0, 0, 0, False, TYPE_0, "RES 2,B",           op_bit          }, // 0x90
+   {0, 0, 0, 0, False, TYPE_0, "RES 2,C",           op_bit          }, // 0x91
+   {0, 0, 0, 0, False, TYPE_0, "RES 2,D",           op_bit          }, // 0x92
+   {0, 0, 0, 0, False, TYPE_0, "RES 2,E",           op_bit          }, // 0x93
+   {0, 0, 0, 0, False, TYPE_0, "RES 2,H",           op_bit          }, // 0x94
+   {0, 0, 0, 0, False, TYPE_0, "RES 2,L",           op_bit          }, // 0x95
+   {0, 0, 1, 1, False, TYPE_0, "RES 2,(HL)",        op_bit          }, // 0x96
+   {0, 0, 0, 0, False, TYPE_0, "RES 2,A",           op_bit          }, // 0x97
+   {0, 0, 0, 0, False, TYPE_0, "RES 3,B",           op_bit          }, // 0x98
+   {0, 0, 0, 0, False, TYPE_0, "RES 3,C",           op_bit          }, // 0x99
+   {0, 0, 0, 0, False, TYPE_0, "RES 3,D",           op_bit          }, // 0x9A
+   {0, 0, 0, 0, False, TYPE_0, "RES 3,E",           op_bit          }, // 0x9B
+   {0, 0, 0, 0, False, TYPE_0, "RES 3,H",           op_bit          }, // 0x9C
+   {0, 0, 0, 0, False, TYPE_0, "RES 3,L",           op_bit          }, // 0x9D
+   {0, 0, 1, 1, False, TYPE_0, "RES 3,(HL)",        op_bit          }, // 0x9E
+   {0, 0, 0, 0, False, TYPE_0, "RES 3,A",           op_bit          }, // 0x9F
 
-   {0, 0, 0, 0, False, TYPE_0, "RES 4,B",           NULL            }, // 0xA0
-   {0, 0, 0, 0, False, TYPE_0, "RES 4,C",           NULL            }, // 0xA1
-   {0, 0, 0, 0, False, TYPE_0, "RES 4,D",           NULL            }, // 0xA2
-   {0, 0, 0, 0, False, TYPE_0, "RES 4,E",           NULL            }, // 0xA3
-   {0, 0, 0, 0, False, TYPE_0, "RES 4,H",           NULL            }, // 0xA4
-   {0, 0, 0, 0, False, TYPE_0, "RES 4,L",           NULL            }, // 0xA5
-   {0, 0, 1, 1, False, TYPE_0, "RES 4,(HL)",        NULL            }, // 0xA6
-   {0, 0, 0, 0, False, TYPE_0, "RES 4,A",           NULL            }, // 0xA7
-   {0, 0, 0, 0, False, TYPE_0, "RES 5,B",           NULL            }, // 0xA8
-   {0, 0, 0, 0, False, TYPE_0, "RES 5,C",           NULL            }, // 0xA9
-   {0, 0, 0, 0, False, TYPE_0, "RES 5,D",           NULL            }, // 0xAA
-   {0, 0, 0, 0, False, TYPE_0, "RES 5,E",           NULL            }, // 0xAB
-   {0, 0, 0, 0, False, TYPE_0, "RES 5,H",           NULL            }, // 0xAC
-   {0, 0, 0, 0, False, TYPE_0, "RES 5,L",           NULL            }, // 0xAD
-   {0, 0, 1, 1, False, TYPE_0, "RES 5,(HL)",        NULL            }, // 0xAE
-   {0, 0, 0, 0, False, TYPE_0, "RES 5,A",           NULL            }, // 0xAF
+   {0, 0, 0, 0, False, TYPE_0, "RES 4,B",           op_bit          }, // 0xA0
+   {0, 0, 0, 0, False, TYPE_0, "RES 4,C",           op_bit          }, // 0xA1
+   {0, 0, 0, 0, False, TYPE_0, "RES 4,D",           op_bit          }, // 0xA2
+   {0, 0, 0, 0, False, TYPE_0, "RES 4,E",           op_bit          }, // 0xA3
+   {0, 0, 0, 0, False, TYPE_0, "RES 4,H",           op_bit          }, // 0xA4
+   {0, 0, 0, 0, False, TYPE_0, "RES 4,L",           op_bit          }, // 0xA5
+   {0, 0, 1, 1, False, TYPE_0, "RES 4,(HL)",        op_bit          }, // 0xA6
+   {0, 0, 0, 0, False, TYPE_0, "RES 4,A",           op_bit          }, // 0xA7
+   {0, 0, 0, 0, False, TYPE_0, "RES 5,B",           op_bit          }, // 0xA8
+   {0, 0, 0, 0, False, TYPE_0, "RES 5,C",           op_bit          }, // 0xA9
+   {0, 0, 0, 0, False, TYPE_0, "RES 5,D",           op_bit          }, // 0xAA
+   {0, 0, 0, 0, False, TYPE_0, "RES 5,E",           op_bit          }, // 0xAB
+   {0, 0, 0, 0, False, TYPE_0, "RES 5,H",           op_bit          }, // 0xAC
+   {0, 0, 0, 0, False, TYPE_0, "RES 5,L",           op_bit          }, // 0xAD
+   {0, 0, 1, 1, False, TYPE_0, "RES 5,(HL)",        op_bit          }, // 0xAE
+   {0, 0, 0, 0, False, TYPE_0, "RES 5,A",           op_bit          }, // 0xAF
 
-   {0, 0, 0, 0, False, TYPE_0, "RES 6,B",           NULL            }, // 0xB0
-   {0, 0, 0, 0, False, TYPE_0, "RES 6,C",           NULL            }, // 0xB1
-   {0, 0, 0, 0, False, TYPE_0, "RES 6,D",           NULL            }, // 0xB2
-   {0, 0, 0, 0, False, TYPE_0, "RES 6,E",           NULL            }, // 0xB3
-   {0, 0, 0, 0, False, TYPE_0, "RES 6,H",           NULL            }, // 0xB4
-   {0, 0, 0, 0, False, TYPE_0, "RES 6,L",           NULL            }, // 0xB5
-   {0, 0, 1, 1, False, TYPE_0, "RES 6,(HL)",        NULL            }, // 0xB6
-   {0, 0, 0, 0, False, TYPE_0, "RES 6,A",           NULL            }, // 0xB7
-   {0, 0, 0, 0, False, TYPE_0, "RES 7,B",           NULL            }, // 0xB8
-   {0, 0, 0, 0, False, TYPE_0, "RES 7,C",           NULL            }, // 0xB9
-   {0, 0, 0, 0, False, TYPE_0, "RES 7,D",           NULL            }, // 0xBA
-   {0, 0, 0, 0, False, TYPE_0, "RES 7,E",           NULL            }, // 0xBB
-   {0, 0, 0, 0, False, TYPE_0, "RES 7,H",           NULL            }, // 0xBC
-   {0, 0, 0, 0, False, TYPE_0, "RES 7,L",           NULL            }, // 0xBD
-   {0, 0, 1, 1, False, TYPE_0, "RES 7,(HL)",        NULL            }, // 0xBE
-   {0, 0, 0, 0, False, TYPE_0, "RES 7,A",           NULL            }, // 0xBF
+   {0, 0, 0, 0, False, TYPE_0, "RES 6,B",           op_bit          }, // 0xB0
+   {0, 0, 0, 0, False, TYPE_0, "RES 6,C",           op_bit          }, // 0xB1
+   {0, 0, 0, 0, False, TYPE_0, "RES 6,D",           op_bit          }, // 0xB2
+   {0, 0, 0, 0, False, TYPE_0, "RES 6,E",           op_bit          }, // 0xB3
+   {0, 0, 0, 0, False, TYPE_0, "RES 6,H",           op_bit          }, // 0xB4
+   {0, 0, 0, 0, False, TYPE_0, "RES 6,L",           op_bit          }, // 0xB5
+   {0, 0, 1, 1, False, TYPE_0, "RES 6,(HL)",        op_bit          }, // 0xB6
+   {0, 0, 0, 0, False, TYPE_0, "RES 6,A",           op_bit          }, // 0xB7
+   {0, 0, 0, 0, False, TYPE_0, "RES 7,B",           op_bit          }, // 0xB8
+   {0, 0, 0, 0, False, TYPE_0, "RES 7,C",           op_bit          }, // 0xB9
+   {0, 0, 0, 0, False, TYPE_0, "RES 7,D",           op_bit          }, // 0xBA
+   {0, 0, 0, 0, False, TYPE_0, "RES 7,E",           op_bit          }, // 0xBB
+   {0, 0, 0, 0, False, TYPE_0, "RES 7,H",           op_bit          }, // 0xBC
+   {0, 0, 0, 0, False, TYPE_0, "RES 7,L",           op_bit          }, // 0xBD
+   {0, 0, 1, 1, False, TYPE_0, "RES 7,(HL)",        op_bit          }, // 0xBE
+   {0, 0, 0, 0, False, TYPE_0, "RES 7,A",           op_bit          }, // 0xBF
 
-   {0, 0, 0, 0, False, TYPE_0, "SET 0,B",           NULL            }, // 0xC0
-   {0, 0, 0, 0, False, TYPE_0, "SET 0,C",           NULL            }, // 0xC1
-   {0, 0, 0, 0, False, TYPE_0, "SET 0,D",           NULL            }, // 0xC2
-   {0, 0, 0, 0, False, TYPE_0, "SET 0,E",           NULL            }, // 0xC3
-   {0, 0, 0, 0, False, TYPE_0, "SET 0,H",           NULL            }, // 0xC4
-   {0, 0, 0, 0, False, TYPE_0, "SET 0,L",           NULL            }, // 0xC5
-   {0, 0, 1, 1, False, TYPE_0, "SET 0,(HL)",        NULL            }, // 0xC6
-   {0, 0, 0, 0, False, TYPE_0, "SET 0,A",           NULL            }, // 0xC7
-   {0, 0, 0, 0, False, TYPE_0, "SET 1,B",           NULL            }, // 0xC8
-   {0, 0, 0, 0, False, TYPE_0, "SET 1,C",           NULL            }, // 0xC9
-   {0, 0, 0, 0, False, TYPE_0, "SET 1,D",           NULL            }, // 0xCA
-   {0, 0, 0, 0, False, TYPE_0, "SET 1,E",           NULL            }, // 0xCB
-   {0, 0, 0, 0, False, TYPE_0, "SET 1,H",           NULL            }, // 0xCC
-   {0, 0, 0, 0, False, TYPE_0, "SET 1,L",           NULL            }, // 0xCD
-   {0, 0, 1, 1, False, TYPE_0, "SET 1,(HL)",        NULL            }, // 0xCE
-   {0, 0, 0, 0, False, TYPE_0, "SET 1,A",           NULL            }, // 0xCF
+   {0, 0, 0, 0, False, TYPE_0, "SET 0,B",           op_bit          }, // 0xC0
+   {0, 0, 0, 0, False, TYPE_0, "SET 0,C",           op_bit          }, // 0xC1
+   {0, 0, 0, 0, False, TYPE_0, "SET 0,D",           op_bit          }, // 0xC2
+   {0, 0, 0, 0, False, TYPE_0, "SET 0,E",           op_bit          }, // 0xC3
+   {0, 0, 0, 0, False, TYPE_0, "SET 0,H",           op_bit          }, // 0xC4
+   {0, 0, 0, 0, False, TYPE_0, "SET 0,L",           op_bit          }, // 0xC5
+   {0, 0, 1, 1, False, TYPE_0, "SET 0,(HL)",        op_bit          }, // 0xC6
+   {0, 0, 0, 0, False, TYPE_0, "SET 0,A",           op_bit          }, // 0xC7
+   {0, 0, 0, 0, False, TYPE_0, "SET 1,B",           op_bit          }, // 0xC8
+   {0, 0, 0, 0, False, TYPE_0, "SET 1,C",           op_bit          }, // 0xC9
+   {0, 0, 0, 0, False, TYPE_0, "SET 1,D",           op_bit          }, // 0xCA
+   {0, 0, 0, 0, False, TYPE_0, "SET 1,E",           op_bit          }, // 0xCB
+   {0, 0, 0, 0, False, TYPE_0, "SET 1,H",           op_bit          }, // 0xCC
+   {0, 0, 0, 0, False, TYPE_0, "SET 1,L",           op_bit          }, // 0xCD
+   {0, 0, 1, 1, False, TYPE_0, "SET 1,(HL)",        op_bit          }, // 0xCE
+   {0, 0, 0, 0, False, TYPE_0, "SET 1,A",           op_bit          }, // 0xCF
 
-   {0, 0, 0, 0, False, TYPE_0, "SET 2,B",           NULL            }, // 0xD0
-   {0, 0, 0, 0, False, TYPE_0, "SET 2,C",           NULL            }, // 0xD1
-   {0, 0, 0, 0, False, TYPE_0, "SET 2,D",           NULL            }, // 0xD2
-   {0, 0, 0, 0, False, TYPE_0, "SET 2,E",           NULL            }, // 0xD3
-   {0, 0, 0, 0, False, TYPE_0, "SET 2,H",           NULL            }, // 0xD4
-   {0, 0, 0, 0, False, TYPE_0, "SET 2,L",           NULL            }, // 0xD5
-   {0, 0, 1, 1, False, TYPE_0, "SET 2,(HL)",        NULL            }, // 0xD6
-   {0, 0, 0, 0, False, TYPE_0, "SET 2,A",           NULL            }, // 0xD7
-   {0, 0, 0, 0, False, TYPE_0, "SET 3,B",           NULL            }, // 0xD8
-   {0, 0, 0, 0, False, TYPE_0, "SET 3,C",           NULL            }, // 0xD9
-   {0, 0, 0, 0, False, TYPE_0, "SET 3,D",           NULL            }, // 0xDA
-   {0, 0, 0, 0, False, TYPE_0, "SET 3,E",           NULL            }, // 0xDB
-   {0, 0, 0, 0, False, TYPE_0, "SET 3,H",           NULL            }, // 0xDC
-   {0, 0, 0, 0, False, TYPE_0, "SET 3,L",           NULL            }, // 0xDD
-   {0, 0, 1, 1, False, TYPE_0, "SET 3,(HL)",        NULL            }, // 0xDE
-   {0, 0, 0, 0, False, TYPE_0, "SET 3,A",           NULL            }, // 0xDF
+   {0, 0, 0, 0, False, TYPE_0, "SET 2,B",           op_bit          }, // 0xD0
+   {0, 0, 0, 0, False, TYPE_0, "SET 2,C",           op_bit          }, // 0xD1
+   {0, 0, 0, 0, False, TYPE_0, "SET 2,D",           op_bit          }, // 0xD2
+   {0, 0, 0, 0, False, TYPE_0, "SET 2,E",           op_bit          }, // 0xD3
+   {0, 0, 0, 0, False, TYPE_0, "SET 2,H",           op_bit          }, // 0xD4
+   {0, 0, 0, 0, False, TYPE_0, "SET 2,L",           op_bit          }, // 0xD5
+   {0, 0, 1, 1, False, TYPE_0, "SET 2,(HL)",        op_bit          }, // 0xD6
+   {0, 0, 0, 0, False, TYPE_0, "SET 2,A",           op_bit          }, // 0xD7
+   {0, 0, 0, 0, False, TYPE_0, "SET 3,B",           op_bit          }, // 0xD8
+   {0, 0, 0, 0, False, TYPE_0, "SET 3,C",           op_bit          }, // 0xD9
+   {0, 0, 0, 0, False, TYPE_0, "SET 3,D",           op_bit          }, // 0xDA
+   {0, 0, 0, 0, False, TYPE_0, "SET 3,E",           op_bit          }, // 0xDB
+   {0, 0, 0, 0, False, TYPE_0, "SET 3,H",           op_bit          }, // 0xDC
+   {0, 0, 0, 0, False, TYPE_0, "SET 3,L",           op_bit          }, // 0xDD
+   {0, 0, 1, 1, False, TYPE_0, "SET 3,(HL)",        op_bit          }, // 0xDE
+   {0, 0, 0, 0, False, TYPE_0, "SET 3,A",           op_bit          }, // 0xDF
 
-   {0, 0, 0, 0, False, TYPE_0, "SET 4,B",           NULL            }, // 0xE0
-   {0, 0, 0, 0, False, TYPE_0, "SET 4,C",           NULL            }, // 0xE1
-   {0, 0, 0, 0, False, TYPE_0, "SET 4,D",           NULL            }, // 0xE2
-   {0, 0, 0, 0, False, TYPE_0, "SET 4,E",           NULL            }, // 0xE3
-   {0, 0, 0, 0, False, TYPE_0, "SET 4,H",           NULL            }, // 0xE4
-   {0, 0, 0, 0, False, TYPE_0, "SET 4,L",           NULL            }, // 0xE5
-   {0, 0, 1, 1, False, TYPE_0, "SET 4,(HL)",        NULL            }, // 0xE6
-   {0, 0, 0, 0, False, TYPE_0, "SET 4,A",           NULL            }, // 0xE7
-   {0, 0, 0, 0, False, TYPE_0, "SET 5,B",           NULL            }, // 0xE8
-   {0, 0, 0, 0, False, TYPE_0, "SET 5,C",           NULL            }, // 0xE9
-   {0, 0, 0, 0, False, TYPE_0, "SET 5,D",           NULL            }, // 0xEA
-   {0, 0, 0, 0, False, TYPE_0, "SET 5,E",           NULL            }, // 0xEB
-   {0, 0, 0, 0, False, TYPE_0, "SET 5,H",           NULL            }, // 0xEC
-   {0, 0, 0, 0, False, TYPE_0, "SET 5,L",           NULL            }, // 0xED
-   {0, 0, 1, 1, False, TYPE_0, "SET 5,(HL)",        NULL            }, // 0xEE
-   {0, 0, 0, 0, False, TYPE_0, "SET 5,A",           NULL            }, // 0xEF
+   {0, 0, 0, 0, False, TYPE_0, "SET 4,B",           op_bit          }, // 0xE0
+   {0, 0, 0, 0, False, TYPE_0, "SET 4,C",           op_bit          }, // 0xE1
+   {0, 0, 0, 0, False, TYPE_0, "SET 4,D",           op_bit          }, // 0xE2
+   {0, 0, 0, 0, False, TYPE_0, "SET 4,E",           op_bit          }, // 0xE3
+   {0, 0, 0, 0, False, TYPE_0, "SET 4,H",           op_bit          }, // 0xE4
+   {0, 0, 0, 0, False, TYPE_0, "SET 4,L",           op_bit          }, // 0xE5
+   {0, 0, 1, 1, False, TYPE_0, "SET 4,(HL)",        op_bit          }, // 0xE6
+   {0, 0, 0, 0, False, TYPE_0, "SET 4,A",           op_bit          }, // 0xE7
+   {0, 0, 0, 0, False, TYPE_0, "SET 5,B",           op_bit          }, // 0xE8
+   {0, 0, 0, 0, False, TYPE_0, "SET 5,C",           op_bit          }, // 0xE9
+   {0, 0, 0, 0, False, TYPE_0, "SET 5,D",           op_bit          }, // 0xEA
+   {0, 0, 0, 0, False, TYPE_0, "SET 5,E",           op_bit          }, // 0xEB
+   {0, 0, 0, 0, False, TYPE_0, "SET 5,H",           op_bit          }, // 0xEC
+   {0, 0, 0, 0, False, TYPE_0, "SET 5,L",           op_bit          }, // 0xED
+   {0, 0, 1, 1, False, TYPE_0, "SET 5,(HL)",        op_bit          }, // 0xEE
+   {0, 0, 0, 0, False, TYPE_0, "SET 5,A",           op_bit          }, // 0xEF
 
-   {0, 0, 0, 0, False, TYPE_0, "SET 6,B",           NULL            }, // 0xF0
-   {0, 0, 0, 0, False, TYPE_0, "SET 6,C",           NULL            }, // 0xF1
-   {0, 0, 0, 0, False, TYPE_0, "SET 6,D",           NULL            }, // 0xF2
-   {0, 0, 0, 0, False, TYPE_0, "SET 6,E",           NULL            }, // 0xF3
-   {0, 0, 0, 0, False, TYPE_0, "SET 6,H",           NULL            }, // 0xF4
-   {0, 0, 0, 0, False, TYPE_0, "SET 6,L",           NULL            }, // 0xF5
-   {0, 0, 1, 1, False, TYPE_0, "SET 6,(HL)",        NULL            }, // 0xF6
-   {0, 0, 0, 0, False, TYPE_0, "SET 6,A",           NULL            }, // 0xF7
-   {0, 0, 0, 0, False, TYPE_0, "SET 7,B",           NULL            }, // 0xF8
-   {0, 0, 0, 0, False, TYPE_0, "SET 7,C",           NULL            }, // 0xF9
-   {0, 0, 0, 0, False, TYPE_0, "SET 7,D",           NULL            }, // 0xFA
-   {0, 0, 0, 0, False, TYPE_0, "SET 7,E",           NULL            }, // 0xFB
-   {0, 0, 0, 0, False, TYPE_0, "SET 7,H",           NULL            }, // 0xFC
-   {0, 0, 0, 0, False, TYPE_0, "SET 7,L",           NULL            }, // 0xFD
-   {0, 0, 1, 1, False, TYPE_0, "SET 7,(HL)",        NULL            }, // 0xFE
-   {0, 0, 0, 0, False, TYPE_0, "SET 7,A",           NULL            }  // 0xFF
+   {0, 0, 0, 0, False, TYPE_0, "SET 6,B",           op_bit          }, // 0xF0
+   {0, 0, 0, 0, False, TYPE_0, "SET 6,C",           op_bit          }, // 0xF1
+   {0, 0, 0, 0, False, TYPE_0, "SET 6,D",           op_bit          }, // 0xF2
+   {0, 0, 0, 0, False, TYPE_0, "SET 6,E",           op_bit          }, // 0xF3
+   {0, 0, 0, 0, False, TYPE_0, "SET 6,H",           op_bit          }, // 0xF4
+   {0, 0, 0, 0, False, TYPE_0, "SET 6,L",           op_bit          }, // 0xF5
+   {0, 0, 1, 1, False, TYPE_0, "SET 6,(HL)",        op_bit          }, // 0xF6
+   {0, 0, 0, 0, False, TYPE_0, "SET 6,A",           op_bit          }, // 0xF7
+   {0, 0, 0, 0, False, TYPE_0, "SET 7,B",           op_bit          }, // 0xF8
+   {0, 0, 0, 0, False, TYPE_0, "SET 7,C",           op_bit          }, // 0xF9
+   {0, 0, 0, 0, False, TYPE_0, "SET 7,D",           op_bit          }, // 0xFA
+   {0, 0, 0, 0, False, TYPE_0, "SET 7,E",           op_bit          }, // 0xFB
+   {0, 0, 0, 0, False, TYPE_0, "SET 7,H",           op_bit          }, // 0xFC
+   {0, 0, 0, 0, False, TYPE_0, "SET 7,L",           op_bit          }, // 0xFD
+   {0, 0, 1, 1, False, TYPE_0, "SET 7,(HL)",        op_bit          }, // 0xFE
+   {0, 0, 0, 0, False, TYPE_0, "SET 7,A",           op_bit          }  // 0xFF
 };
 
 // Instructions with DD or FD prefix
@@ -1568,277 +1709,277 @@ InstrType index_instructions[256] = {
 // This is handled as a special case in the code, and thus the entries
 // in this table specify 0 for the displacement length.
 InstrType index_bit_instructions[256] = {
-   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d),B",     NULL            }, // 0x00
-   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d),C",     NULL            }, // 0x01
-   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d),D",     NULL            }, // 0x02
-   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d),E",     NULL            }, // 0x03
-   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d),H",     NULL            }, // 0x04
-   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d),L",     NULL            }, // 0x05
-   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d)",       NULL            }, // 0x06
-   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d),A",     NULL            }, // 0x07
-   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d),B",     NULL            }, // 0x08
-   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d),C",     NULL            }, // 0x09
-   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d),D",     NULL            }, // 0x0A
-   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d),E",     NULL            }, // 0x0B
-   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d),H",     NULL            }, // 0x0C
-   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d),L",     NULL            }, // 0x0D
-   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d)",       NULL            }, // 0x0E
-   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d),A",     NULL            }, // 0x0F
+   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d),B",     op_bit          }, // 0x00
+   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d),C",     op_bit          }, // 0x01
+   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d),D",     op_bit          }, // 0x02
+   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d),E",     op_bit          }, // 0x03
+   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d),H",     op_bit          }, // 0x04
+   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d),L",     op_bit          }, // 0x05
+   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d)",       op_bit          }, // 0x06
+   {0, 0, 1, 1, False, TYPE_5, "RLC (%s%+d),A",     op_bit          }, // 0x07
+   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d),B",     op_bit          }, // 0x08
+   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d),C",     op_bit          }, // 0x09
+   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d),D",     op_bit          }, // 0x0A
+   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d),E",     op_bit          }, // 0x0B
+   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d),H",     op_bit          }, // 0x0C
+   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d),L",     op_bit          }, // 0x0D
+   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d)",       op_bit          }, // 0x0E
+   {0, 0, 1, 1, False, TYPE_5, "RRC (%s%+d),A",     op_bit          }, // 0x0F
 
-   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d),B",      NULL            }, // 0x10
-   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d),C",      NULL            }, // 0x11
-   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d),D",      NULL            }, // 0x12
-   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d),E",      NULL            }, // 0x13
-   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d),H",      NULL            }, // 0x14
-   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d),L",      NULL            }, // 0x15
-   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d)",        NULL            }, // 0x16
-   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d),A",      NULL            }, // 0x17
-   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d),B",      NULL            }, // 0x18
-   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d),C",      NULL            }, // 0x19
-   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d),D",      NULL            }, // 0x1A
-   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d),E",      NULL            }, // 0x1B
-   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d),H",      NULL            }, // 0x1C
-   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d),L",      NULL            }, // 0x1D
-   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d)",        NULL            }, // 0x1E
-   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d),A",      NULL            }, // 0x1F
+   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d),B",      op_bit          }, // 0x10
+   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d),C",      op_bit          }, // 0x11
+   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d),D",      op_bit          }, // 0x12
+   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d),E",      op_bit          }, // 0x13
+   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d),H",      op_bit          }, // 0x14
+   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d),L",      op_bit          }, // 0x15
+   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d)",        op_bit          }, // 0x16
+   {0, 0, 1, 1, False, TYPE_5, "RL (%s%+d),A",      op_bit          }, // 0x17
+   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d),B",      op_bit          }, // 0x18
+   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d),C",      op_bit          }, // 0x19
+   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d),D",      op_bit          }, // 0x1A
+   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d),E",      op_bit          }, // 0x1B
+   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d),H",      op_bit          }, // 0x1C
+   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d),L",      op_bit          }, // 0x1D
+   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d)",        op_bit          }, // 0x1E
+   {0, 0, 1, 1, False, TYPE_5, "RR (%s%+d),A",      op_bit          }, // 0x1F
 
-   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d),B",     NULL            }, // 0x20
-   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d),C",     NULL            }, // 0x21
-   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d),D",     NULL            }, // 0x22
-   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d),E",     NULL            }, // 0x23
-   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d),H",     NULL            }, // 0x24
-   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d),L",     NULL            }, // 0x25
-   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d)",       NULL            }, // 0x26
-   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d),A",     NULL            }, // 0x27
-   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d),B",     NULL            }, // 0x28
-   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d),C",     NULL            }, // 0x29
-   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d),D",     NULL            }, // 0x2A
-   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d),E",     NULL            }, // 0x2B
-   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d),H",     NULL            }, // 0x2C
-   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d),L",     NULL            }, // 0x2D
-   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d)",       NULL            }, // 0x2E
-   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d),A",     NULL            }, // 0x2F
+   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d),B",     op_bit          }, // 0x20
+   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d),C",     op_bit          }, // 0x21
+   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d),D",     op_bit          }, // 0x22
+   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d),E",     op_bit          }, // 0x23
+   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d),H",     op_bit          }, // 0x24
+   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d),L",     op_bit          }, // 0x25
+   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d)",       op_bit          }, // 0x26
+   {0, 0, 1, 1, False, TYPE_5, "SLA (%s%+d),A",     op_bit          }, // 0x27
+   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d),B",     op_bit          }, // 0x28
+   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d),C",     op_bit          }, // 0x29
+   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d),D",     op_bit          }, // 0x2A
+   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d),E",     op_bit          }, // 0x2B
+   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d),H",     op_bit          }, // 0x2C
+   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d),L",     op_bit          }, // 0x2D
+   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d)",       op_bit          }, // 0x2E
+   {0, 0, 1, 1, False, TYPE_5, "SRA (%s%+d),A",     op_bit          }, // 0x2F
 
-   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d),B",     NULL            }, // 0x30
-   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d),C",     NULL            }, // 0x31
-   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d),D",     NULL            }, // 0x32
-   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d),E",     NULL            }, // 0x33
-   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d),H",     NULL            }, // 0x34
-   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d),L",     NULL            }, // 0x35
-   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d)",       NULL            }, // 0x36
-   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d),A",     NULL            }, // 0x37
-   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d),B",     NULL            }, // 0x38
-   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d),C",     NULL            }, // 0x39
-   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d),D",     NULL            }, // 0x3A
-   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d),E",     NULL            }, // 0x3B
-   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d),H",     NULL            }, // 0x3C
-   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d),L",     NULL            }, // 0x3D
-   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d)",       NULL            }, // 0x3E
-   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d),A",     NULL            }, // 0x3F
+   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d),B",     op_bit          }, // 0x30
+   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d),C",     op_bit          }, // 0x31
+   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d),D",     op_bit          }, // 0x32
+   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d),E",     op_bit          }, // 0x33
+   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d),H",     op_bit          }, // 0x34
+   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d),L",     op_bit          }, // 0x35
+   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d)",       op_bit          }, // 0x36
+   {0, 0, 1, 1, False, TYPE_5, "SLL (%s%+d),A",     op_bit          }, // 0x37
+   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d),B",     op_bit          }, // 0x38
+   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d),C",     op_bit          }, // 0x39
+   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d),D",     op_bit          }, // 0x3A
+   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d),E",     op_bit          }, // 0x3B
+   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d),H",     op_bit          }, // 0x3C
+   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d),L",     op_bit          }, // 0x3D
+   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d)",       op_bit          }, // 0x3E
+   {0, 0, 1, 1, False, TYPE_5, "SRL (%s%+d),A",     op_bit          }, // 0x3F
 
-   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     NULL            }, // 0x40
-   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     NULL            }, // 0x41
-   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     NULL            }, // 0x42
-   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     NULL            }, // 0x43
-   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     NULL            }, // 0x44
-   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     NULL            }, // 0x45
-   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     NULL            }, // 0x46
-   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     NULL            }, // 0x47
-   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     NULL            }, // 0x48
-   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     NULL            }, // 0x49
-   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     NULL            }, // 0x4A
-   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     NULL            }, // 0x4B
-   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     NULL            }, // 0x4C
-   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     NULL            }, // 0x4D
-   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     NULL            }, // 0x4E
-   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     NULL            }, // 0x4F
+   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     op_bit          }, // 0x40
+   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     op_bit          }, // 0x41
+   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     op_bit          }, // 0x42
+   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     op_bit          }, // 0x43
+   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     op_bit          }, // 0x44
+   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     op_bit          }, // 0x45
+   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     op_bit          }, // 0x46
+   {0, 0, 1, 0, False, TYPE_5, "BIT 0,(%s%+d)",     op_bit          }, // 0x47
+   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     op_bit          }, // 0x48
+   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     op_bit          }, // 0x49
+   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     op_bit          }, // 0x4A
+   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     op_bit          }, // 0x4B
+   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     op_bit          }, // 0x4C
+   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     op_bit          }, // 0x4D
+   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     op_bit          }, // 0x4E
+   {0, 0, 1, 0, False, TYPE_5, "BIT 1,(%s%+d)",     op_bit          }, // 0x4F
 
-   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     NULL            }, // 0x50
-   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     NULL            }, // 0x51
-   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     NULL            }, // 0x52
-   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     NULL            }, // 0x53
-   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     NULL            }, // 0x54
-   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     NULL            }, // 0x55
-   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     NULL            }, // 0x56
-   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     NULL            }, // 0x57
-   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     NULL            }, // 0x58
-   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     NULL            }, // 0x59
-   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     NULL            }, // 0x5A
-   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     NULL            }, // 0x5B
-   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     NULL            }, // 0x5C
-   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     NULL            }, // 0x5D
-   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     NULL            }, // 0x5E
-   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     NULL            }, // 0x5F
+   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     op_bit          }, // 0x50
+   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     op_bit          }, // 0x51
+   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     op_bit          }, // 0x52
+   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     op_bit          }, // 0x53
+   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     op_bit          }, // 0x54
+   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     op_bit          }, // 0x55
+   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     op_bit          }, // 0x56
+   {0, 0, 1, 0, False, TYPE_5, "BIT 2,(%s%+d)",     op_bit          }, // 0x57
+   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     op_bit          }, // 0x58
+   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     op_bit          }, // 0x59
+   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     op_bit          }, // 0x5A
+   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     op_bit          }, // 0x5B
+   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     op_bit          }, // 0x5C
+   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     op_bit          }, // 0x5D
+   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     op_bit          }, // 0x5E
+   {0, 0, 1, 0, False, TYPE_5, "BIT 3,(%s%+d)",     op_bit          }, // 0x5F
 
-   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     NULL            }, // 0x60
-   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     NULL            }, // 0x61
-   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     NULL            }, // 0x62
-   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     NULL            }, // 0x63
-   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     NULL            }, // 0x64
-   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     NULL            }, // 0x65
-   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     NULL            }, // 0x66
-   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     NULL            }, // 0x67
-   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     NULL            }, // 0x68
-   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     NULL            }, // 0x69
-   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     NULL            }, // 0x6A
-   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     NULL            }, // 0x6B
-   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     NULL            }, // 0x6C
-   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     NULL            }, // 0x6D
-   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     NULL            }, // 0x6E
-   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     NULL            }, // 0x6F
+   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     op_bit          }, // 0x60
+   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     op_bit          }, // 0x61
+   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     op_bit          }, // 0x62
+   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     op_bit          }, // 0x63
+   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     op_bit          }, // 0x64
+   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     op_bit          }, // 0x65
+   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     op_bit          }, // 0x66
+   {0, 0, 1, 0, False, TYPE_5, "BIT 4,(%s%+d)",     op_bit          }, // 0x67
+   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     op_bit          }, // 0x68
+   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     op_bit          }, // 0x69
+   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     op_bit          }, // 0x6A
+   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     op_bit          }, // 0x6B
+   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     op_bit          }, // 0x6C
+   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     op_bit          }, // 0x6D
+   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     op_bit          }, // 0x6E
+   {0, 0, 1, 0, False, TYPE_5, "BIT 5,(%s%+d)",     op_bit          }, // 0x6F
 
-   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     NULL            }, // 0x70
-   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     NULL            }, // 0x71
-   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     NULL            }, // 0x72
-   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     NULL            }, // 0x73
-   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     NULL            }, // 0x74
-   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     NULL            }, // 0x75
-   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     NULL            }, // 0x76
-   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     NULL            }, // 0x77
-   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     NULL            }, // 0x78
-   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     NULL            }, // 0x79
-   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     NULL            }, // 0x7A
-   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     NULL            }, // 0x7B
-   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     NULL            }, // 0x7C
-   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     NULL            }, // 0x7D
-   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     NULL            }, // 0x7E
-   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     NULL            }, // 0x7F
+   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     op_bit          }, // 0x70
+   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     op_bit          }, // 0x71
+   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     op_bit          }, // 0x72
+   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     op_bit          }, // 0x73
+   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     op_bit          }, // 0x74
+   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     op_bit          }, // 0x75
+   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     op_bit          }, // 0x76
+   {0, 0, 1, 0, False, TYPE_5, "BIT 6,(%s%+d)",     op_bit          }, // 0x77
+   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     op_bit          }, // 0x78
+   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     op_bit          }, // 0x79
+   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     op_bit          }, // 0x7A
+   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     op_bit          }, // 0x7B
+   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     op_bit          }, // 0x7C
+   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     op_bit          }, // 0x7D
+   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     op_bit          }, // 0x7E
+   {0, 0, 1, 0, False, TYPE_5, "BIT 7,(%s%+d)",     op_bit          }, // 0x7F
 
-   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d),B",   NULL            }, // 0x80
-   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d),C",   NULL            }, // 0x81
-   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d),D",   NULL            }, // 0x82
-   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d),E",   NULL            }, // 0x83
-   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d),H",   NULL            }, // 0x84
-   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d),L",   NULL            }, // 0x85
-   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d)",     NULL            }, // 0x86
-   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d),A",   NULL            }, // 0x87
-   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d),B",   NULL            }, // 0x88
-   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d),C",   NULL            }, // 0x89
-   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d),D",   NULL            }, // 0x8A
-   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d),E",   NULL            }, // 0x8B
-   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d),H",   NULL            }, // 0x8C
-   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d),L",   NULL            }, // 0x8D
-   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d)",     NULL            }, // 0x8E
-   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d),A",   NULL            }, // 0x8F
+   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d),B",   op_bit          }, // 0x80
+   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d),C",   op_bit          }, // 0x81
+   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d),D",   op_bit          }, // 0x82
+   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d),E",   op_bit          }, // 0x83
+   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d),H",   op_bit          }, // 0x84
+   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d),L",   op_bit          }, // 0x85
+   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d)",     op_bit          }, // 0x86
+   {0, 0, 1, 1, False, TYPE_5, "RES 0,(%s%+d),A",   op_bit          }, // 0x87
+   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d),B",   op_bit          }, // 0x88
+   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d),C",   op_bit          }, // 0x89
+   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d),D",   op_bit          }, // 0x8A
+   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d),E",   op_bit          }, // 0x8B
+   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d),H",   op_bit          }, // 0x8C
+   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d),L",   op_bit          }, // 0x8D
+   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d)",     op_bit          }, // 0x8E
+   {0, 0, 1, 1, False, TYPE_5, "RES 1,(%s%+d),A",   op_bit          }, // 0x8F
 
-   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d),B",   NULL            }, // 0x90
-   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d),C",   NULL            }, // 0x91
-   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d),D",   NULL            }, // 0x92
-   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d),E",   NULL            }, // 0x93
-   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d),H",   NULL            }, // 0x94
-   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d),L",   NULL            }, // 0x95
-   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d)",     NULL            }, // 0x96
-   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d),A",   NULL            }, // 0x97
-   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d),B",   NULL            }, // 0x98
-   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d),C",   NULL            }, // 0x99
-   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d),D",   NULL            }, // 0x9A
-   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d),E",   NULL            }, // 0x9B
-   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d),H",   NULL            }, // 0x9C
-   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d),L",   NULL            }, // 0x9D
-   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d)",     NULL            }, // 0x9E
-   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d),A",   NULL            }, // 0x9F
+   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d),B",   op_bit          }, // 0x90
+   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d),C",   op_bit          }, // 0x91
+   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d),D",   op_bit          }, // 0x92
+   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d),E",   op_bit          }, // 0x93
+   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d),H",   op_bit          }, // 0x94
+   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d),L",   op_bit          }, // 0x95
+   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d)",     op_bit          }, // 0x96
+   {0, 0, 1, 1, False, TYPE_5, "RES 2,(%s%+d),A",   op_bit          }, // 0x97
+   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d),B",   op_bit          }, // 0x98
+   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d),C",   op_bit          }, // 0x99
+   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d),D",   op_bit          }, // 0x9A
+   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d),E",   op_bit          }, // 0x9B
+   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d),H",   op_bit          }, // 0x9C
+   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d),L",   op_bit          }, // 0x9D
+   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d)",     op_bit          }, // 0x9E
+   {0, 0, 1, 1, False, TYPE_5, "RES 3,(%s%+d),A",   op_bit          }, // 0x9F
 
-   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d),B",   NULL            }, // 0xA0
-   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d),C",   NULL            }, // 0xA1
-   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d),D",   NULL            }, // 0xA2
-   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d),E",   NULL            }, // 0xA3
-   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d),H",   NULL            }, // 0xA4
-   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d),L",   NULL            }, // 0xA5
-   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d)",     NULL            }, // 0xA6
-   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d),A",   NULL            }, // 0xA7
-   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d),B",   NULL            }, // 0xA8
-   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d),C",   NULL            }, // 0xA9
-   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d),D",   NULL            }, // 0xAA
-   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d),E",   NULL            }, // 0xAB
-   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d),H",   NULL            }, // 0xAC
-   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d),L",   NULL            }, // 0xAD
-   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d)",     NULL            }, // 0xAE
-   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d),A",   NULL            }, // 0xAF
+   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d),B",   op_bit          }, // 0xA0
+   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d),C",   op_bit          }, // 0xA1
+   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d),D",   op_bit          }, // 0xA2
+   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d),E",   op_bit          }, // 0xA3
+   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d),H",   op_bit          }, // 0xA4
+   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d),L",   op_bit          }, // 0xA5
+   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d)",     op_bit          }, // 0xA6
+   {0, 0, 1, 1, False, TYPE_5, "RES 4,(%s%+d),A",   op_bit          }, // 0xA7
+   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d),B",   op_bit          }, // 0xA8
+   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d),C",   op_bit          }, // 0xA9
+   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d),D",   op_bit          }, // 0xAA
+   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d),E",   op_bit          }, // 0xAB
+   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d),H",   op_bit          }, // 0xAC
+   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d),L",   op_bit          }, // 0xAD
+   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d)",     op_bit          }, // 0xAE
+   {0, 0, 1, 1, False, TYPE_5, "RES 5,(%s%+d),A",   op_bit          }, // 0xAF
 
-   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d),B",   NULL            }, // 0xB0
-   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d),C",   NULL            }, // 0xB1
-   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d),D",   NULL            }, // 0xB2
-   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d),E",   NULL            }, // 0xB3
-   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d),H",   NULL            }, // 0xB4
-   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d),L",   NULL            }, // 0xB5
-   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d)",     NULL            }, // 0xB6
-   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d),A",   NULL            }, // 0xB7
-   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d),B",   NULL            }, // 0xB8
-   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d),C",   NULL            }, // 0xB9
-   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d),D",   NULL            }, // 0xBA
-   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d),E",   NULL            }, // 0xBB
-   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d),H",   NULL            }, // 0xBC
-   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d),L",   NULL            }, // 0xBD
-   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d)",     NULL            }, // 0xBE
-   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d),A",   NULL            }, // 0xBF
+   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d),B",   op_bit          }, // 0xB0
+   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d),C",   op_bit          }, // 0xB1
+   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d),D",   op_bit          }, // 0xB2
+   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d),E",   op_bit          }, // 0xB3
+   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d),H",   op_bit          }, // 0xB4
+   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d),L",   op_bit          }, // 0xB5
+   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d)",     op_bit          }, // 0xB6
+   {0, 0, 1, 1, False, TYPE_5, "RES 6,(%s%+d),A",   op_bit          }, // 0xB7
+   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d),B",   op_bit          }, // 0xB8
+   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d),C",   op_bit          }, // 0xB9
+   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d),D",   op_bit          }, // 0xBA
+   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d),E",   op_bit          }, // 0xBB
+   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d),H",   op_bit          }, // 0xBC
+   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d),L",   op_bit          }, // 0xBD
+   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d)",     op_bit          }, // 0xBE
+   {0, 0, 1, 1, False, TYPE_5, "RES 7,(%s%+d),A",   op_bit          }, // 0xBF
 
-   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d),B",   NULL            }, // 0xC0
-   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d),C",   NULL            }, // 0xC1
-   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d),D",   NULL            }, // 0xC2
-   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d),E",   NULL            }, // 0xC3
-   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d),H",   NULL            }, // 0xC4
-   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d),L",   NULL            }, // 0xC5
-   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d)",     NULL            }, // 0xC6
-   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d),A",   NULL            }, // 0xC7
-   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d),B",   NULL            }, // 0xC8
-   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d),C",   NULL            }, // 0xC9
-   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d),D",   NULL            }, // 0xCA
-   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d),E",   NULL            }, // 0xCB
-   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d),H",   NULL            }, // 0xCC
-   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d),L",   NULL            }, // 0xCD
-   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d)",     NULL            }, // 0xCE
-   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d),A",   NULL            }, // 0xCF
+   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d),B",   op_bit          }, // 0xC0
+   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d),C",   op_bit          }, // 0xC1
+   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d),D",   op_bit          }, // 0xC2
+   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d),E",   op_bit          }, // 0xC3
+   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d),H",   op_bit          }, // 0xC4
+   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d),L",   op_bit          }, // 0xC5
+   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d)",     op_bit          }, // 0xC6
+   {0, 0, 1, 1, False, TYPE_5, "SET 0,(%s%+d),A",   op_bit          }, // 0xC7
+   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d),B",   op_bit          }, // 0xC8
+   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d),C",   op_bit          }, // 0xC9
+   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d),D",   op_bit          }, // 0xCA
+   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d),E",   op_bit          }, // 0xCB
+   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d),H",   op_bit          }, // 0xCC
+   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d),L",   op_bit          }, // 0xCD
+   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d)",     op_bit          }, // 0xCE
+   {0, 0, 1, 1, False, TYPE_5, "SET 1,(%s%+d),A",   op_bit          }, // 0xCF
 
-   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d),B",   NULL            }, // 0xD0
-   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d),C",   NULL            }, // 0xD1
-   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d),D",   NULL            }, // 0xD2
-   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d),E",   NULL            }, // 0xD3
-   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d),H",   NULL            }, // 0xD4
-   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d),L",   NULL            }, // 0xD5
-   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d)",     NULL            }, // 0xD6
-   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d),A",   NULL            }, // 0xD7
-   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d),B",   NULL            }, // 0xD8
-   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d),C",   NULL            }, // 0xD9
-   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d),D",   NULL            }, // 0xDA
-   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d),E",   NULL            }, // 0xDB
-   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d),H",   NULL            }, // 0xDC
-   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d),L",   NULL            }, // 0xDD
-   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d)",     NULL            }, // 0xDE
-   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d),A",   NULL            }, // 0xDF
+   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d),B",   op_bit          }, // 0xD0
+   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d),C",   op_bit          }, // 0xD1
+   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d),D",   op_bit          }, // 0xD2
+   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d),E",   op_bit          }, // 0xD3
+   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d),H",   op_bit          }, // 0xD4
+   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d),L",   op_bit          }, // 0xD5
+   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d)",     op_bit          }, // 0xD6
+   {0, 0, 1, 1, False, TYPE_5, "SET 2,(%s%+d),A",   op_bit          }, // 0xD7
+   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d),B",   op_bit          }, // 0xD8
+   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d),C",   op_bit          }, // 0xD9
+   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d),D",   op_bit          }, // 0xDA
+   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d),E",   op_bit          }, // 0xDB
+   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d),H",   op_bit          }, // 0xDC
+   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d),L",   op_bit          }, // 0xDD
+   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d)",     op_bit          }, // 0xDE
+   {0, 0, 1, 1, False, TYPE_5, "SET 3,(%s%+d),A",   op_bit          }, // 0xDF
 
-   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d),B",   NULL            }, // 0xE0
-   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d),C",   NULL            }, // 0xE1
-   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d),D",   NULL            }, // 0xE2
-   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d),E",   NULL            }, // 0xE3
-   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d),H",   NULL            }, // 0xE4
-   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d),L",   NULL            }, // 0xE5
-   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d)",     NULL            }, // 0xE6
-   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d),A",   NULL            }, // 0xE7
-   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d),B",   NULL            }, // 0xE8
-   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d),C",   NULL            }, // 0xE9
-   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d),D",   NULL            }, // 0xEA
-   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d),E",   NULL            }, // 0xEB
-   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d),H",   NULL            }, // 0xEC
-   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d),L",   NULL            }, // 0xED
-   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d)",     NULL            }, // 0xEE
-   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d),A",   NULL            }, // 0xEF
+   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d),B",   op_bit          }, // 0xE0
+   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d),C",   op_bit          }, // 0xE1
+   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d),D",   op_bit          }, // 0xE2
+   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d),E",   op_bit          }, // 0xE3
+   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d),H",   op_bit          }, // 0xE4
+   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d),L",   op_bit          }, // 0xE5
+   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d)",     op_bit          }, // 0xE6
+   {0, 0, 1, 1, False, TYPE_5, "SET 4,(%s%+d),A",   op_bit          }, // 0xE7
+   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d),B",   op_bit          }, // 0xE8
+   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d),C",   op_bit          }, // 0xE9
+   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d),D",   op_bit          }, // 0xEA
+   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d),E",   op_bit          }, // 0xEB
+   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d),H",   op_bit          }, // 0xEC
+   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d),L",   op_bit          }, // 0xED
+   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d)",     op_bit          }, // 0xEE
+   {0, 0, 1, 1, False, TYPE_5, "SET 5,(%s%+d),A",   op_bit          }, // 0xEF
 
-   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d),B",   NULL            }, // 0xF0
-   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d),C",   NULL            }, // 0xF1
-   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d),D",   NULL            }, // 0xF2
-   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d),E",   NULL            }, // 0xF3
-   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d),H",   NULL            }, // 0xF4
-   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d),L",   NULL            }, // 0xF5
-   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d)",     NULL            }, // 0xF6
-   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d),A",   NULL            }, // 0xF7
-   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d),B",   NULL            }, // 0xF8
-   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d),C",   NULL            }, // 0xF9
-   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d),D",   NULL            }, // 0xFA
-   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d),E",   NULL            }, // 0xFB
-   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d),H",   NULL            }, // 0xFC
-   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d),L",   NULL            }, // 0xFD
-   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d)",     NULL            }, // 0xFE
-   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d),A",   NULL            }  // 0xFF
+   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d),B",   op_bit          }, // 0xF0
+   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d),C",   op_bit          }, // 0xF1
+   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d),D",   op_bit          }, // 0xF2
+   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d),E",   op_bit          }, // 0xF3
+   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d),H",   op_bit          }, // 0xF4
+   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d),L",   op_bit          }, // 0xF5
+   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d)",     op_bit          }, // 0xF6
+   {0, 0, 1, 1, False, TYPE_5, "SET 6,(%s%+d),A",   op_bit          }, // 0xF7
+   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d),B",   op_bit          }, // 0xF8
+   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d),C",   op_bit          }, // 0xF9
+   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d),D",   op_bit          }, // 0xFA
+   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d),E",   op_bit          }, // 0xFB
+   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d),H",   op_bit          }, // 0xFC
+   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d),L",   op_bit          }, // 0xFD
+   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d)",     op_bit          }, // 0xFE
+   {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d),A",   op_bit          }  // 0xFF
 };
 
 

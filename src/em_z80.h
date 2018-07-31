@@ -1,3 +1,6 @@
+#ifndef _INCLUDE_EM_Z80_H
+#define _INCLUDE_EM_Z80_H
+
 #define False 0
 #define True  1
 
@@ -21,7 +24,12 @@ typedef struct {
    int conditional;
    FormatType format;
    const char *mnemonic;
+   void (*emulate)(int, int);
 } InstrType;
 
 InstrType *table_by_prefix(int prefix);
 char *reg_by_prefix(int prefix);
+
+
+
+#endif

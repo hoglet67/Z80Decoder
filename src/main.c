@@ -4,7 +4,7 @@
 #include <argp.h>
 #include <string.h>
 
-#include "z80tables.h"
+#include "em_z80.h"
 
 #define BUFSIZE 8192
 

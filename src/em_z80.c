@@ -38,7 +38,7 @@
 //  the displacement relative to the start of the instruction.
 
 #include <stdio.h>
-#include "z80tables.h"
+#include "em_z80.h"
 
 #define UNDEFINED {-1, -1, -1, -1, False, TYPE_0, "???"}
 

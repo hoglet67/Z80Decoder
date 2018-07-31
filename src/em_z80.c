@@ -85,6 +85,11 @@ static int reg_im;
 
 #define ID_MEMORY 6
 
+#define ID_RR_BC 0
+#define ID_RR_DE 1
+#define ID_RR_HL 2
+#define ID_RR_SP 3
+
 int *reg_ptr[] = {
    &reg_b,
    &reg_c,
@@ -420,6 +425,7 @@ static void op_misc_rotate(InstrType *instr) {
    }
    flag_h = 0;
    flag_n = 0;
+   update_pc();
 }
 
 static void op_misc_daa(InstrType *instr) {
@@ -461,6 +467,7 @@ static void op_misc_daa(InstrType *instr) {
       set_sign_zero(reg_a);
       flag_pv = partab[reg_a];
    }
+   update_pc();
 }
 
 static void op_misc_cpl(InstrType *instr) {
@@ -469,12 +476,14 @@ static void op_misc_cpl(InstrType *instr) {
    }
    flag_h = 1;
    flag_n = 1;
+   update_pc();
 }
 
 static void op_misc_scf(InstrType *instr) {
    flag_h = 0;
    flag_c = 1;
    flag_n = 0;
+   update_pc();
 }
 
 static void op_misc_ccf(InstrType *instr) {
@@ -483,6 +492,7 @@ static void op_misc_ccf(InstrType *instr) {
       flag_c = flag_c ^ 1;
    }
    flag_n = 0;
+   update_pc();
 }
 
 static void op_ex_af(InstrType *instr) {
@@ -578,6 +588,24 @@ static void op_load_imm8(InstrType *instr) {
 static void op_load_imm16(InstrType *instr) {
    int reg_id = (opcode >> 4) & 3;
    write_reg_pair(reg_id, arg_imm);
+   update_pc();
+}
+
+static void op_add_hl_rr(InstrType *instr) {
+   int reg_id = (opcode >> 4) & 3;
+   int op1 = read_reg_pair(ID_RR_HL);
+   int op2 = read_reg_pair(reg_id);
+   if (op1 < 0 || op2 < 0) {
+      write_reg_pair(ID_RR_HL, -1);
+      set_flags_undefined();;
+   } else {
+      int result = op1 + op2;
+      int cbits = result ^ op1 ^ op2;
+      flag_c = (cbits >> 16) & 1;
+      flag_h = (cbits >> 12) & 1;
+      write_reg_pair(ID_RR_HL, result & 0xffff);
+   }
+   flag_n = 0;
    update_pc();
 }
 
@@ -918,7 +946,7 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 0, False, TYPE_8, "LD B,%02Xh",        op_load_imm8    }, // 0x06
    {0, 0, 0, 0, False, TYPE_0, "RLCA",              op_misc_rotate  }, // 0x07
    {0, 0, 0, 0, False, TYPE_0, "EX AF,AF'",         op_ex_af        }, // 0x08
-   {0, 0, 0, 0, False, TYPE_0, "ADD HL,BC",         NULL            }, // 0x09
+   {0, 0, 0, 0, False, TYPE_0, "ADD HL,BC",         op_add_hl_rr    }, // 0x09
    {0, 0, 1, 0, False, TYPE_0, "LD A,(BC)",         NULL            }, // 0x0A
    {0, 0, 0, 0, False, TYPE_0, "DEC BC",            op_dec_rr       }, // 0x0B
    {0, 0, 0, 0, False, TYPE_0, "INC C",             op_inc_r        }, // 0x0C
@@ -935,7 +963,7 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 0, False, TYPE_8, "LD D,%02Xh",        op_load_imm8    }, // 0x16
    {0, 0, 0, 0, False, TYPE_0, "RLA",               op_misc_rotate  }, // 0x17
    {1, 0, 0, 0, False, TYPE_7, "JR $%+d",           NULL            }, // 0x18
-   {0, 0, 0, 0, False, TYPE_0, "ADD HL,DE",         NULL            }, // 0x19
+   {0, 0, 0, 0, False, TYPE_0, "ADD HL,DE",         op_add_hl_rr    }, // 0x19
    {0, 0, 1, 0, False, TYPE_0, "LD A,(DE)",         NULL            }, // 0x1A
    {0, 0, 0, 0, False, TYPE_0, "DEC DE",            op_dec_rr       }, // 0x1B
    {0, 0, 0, 0, False, TYPE_0, "INC E",             op_inc_r        }, // 0x1C
@@ -952,7 +980,7 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 0, False, TYPE_8, "LD H,%02Xh",        op_load_imm8    }, // 0x26
    {0, 0, 0, 0, False, TYPE_0, "DAA",               op_misc_daa     }, // 0x27
    {1, 0, 0, 0, False, TYPE_7, "JR Z,$%+d",         NULL            }, // 0x28
-   {0, 0, 0, 0, False, TYPE_0, "ADD HL,HL",         NULL            }, // 0x29
+   {0, 0, 0, 0, False, TYPE_0, "ADD HL,HL",         op_add_hl_rr    }, // 0x29
    {0, 2, 2, 0, False, TYPE_8, "LD HL,(%04Xh)",     NULL            }, // 0x2A
    {0, 0, 0, 0, False, TYPE_0, "DEC HL",            op_dec_rr       }, // 0x2B
    {0, 0, 0, 0, False, TYPE_0, "INC L",             op_inc_r        }, // 0x2C
@@ -969,7 +997,7 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 1, False, TYPE_8, "LD (HL),%02Xh",     op_load_imm8    }, // 0x36
    {0, 0, 0, 0, False, TYPE_0, "SCF",               op_misc_scf     }, // 0x37
    {1, 0, 0, 0, False, TYPE_7, "JR C,$%+d",         NULL            }, // 0x38
-   {0, 0, 0, 0, False, TYPE_0, "ADD HL,SP",         NULL            }, // 0x39
+   {0, 0, 0, 0, False, TYPE_0, "ADD HL,SP",         op_add_hl_rr    }, // 0x39
    {0, 2, 1, 0, False, TYPE_8, "LD A,(%04Xh)",      NULL            }, // 0x3A
    {0, 0, 0, 0, False, TYPE_0, "DEC SP",            op_dec_rr       }, // 0x3B
    {0, 0, 0, 0, False, TYPE_0, "INC A",             op_inc_r        }, // 0x3C

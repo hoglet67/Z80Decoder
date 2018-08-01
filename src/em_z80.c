@@ -374,13 +374,21 @@ static void update_pc() {
    }
 }
 // ===================================================================
-// Emulation instructions
+// Emulated instructions
 // ===================================================================
 
 static void op_NOT_IMPL(InstrType *instr) {
    failflag = 2;
    update_pc();
 }
+
+static void op_nop(InstrType *instr) {
+   update_pc();
+}
+
+// ===================================================================
+// Emulated instructions - Control Flow
+// ===================================================================
 
 static void op_jr(InstrType *instr) {
    int cc = (opcode >> 3) & 7;
@@ -504,6 +512,14 @@ static void op_jp_cond(InstrType *instr) {
    }
 }
 
+static void op_halt(InstrType *instr) {
+   // Don't update pc
+}
+
+// ===================================================================
+// Emulated instructions - ALU
+// ===================================================================
+
 static void op_alu(InstrType *instr) {
    int type    = (opcode >> 6) & 3;
    int alu_op  = (opcode >> 3) & 7;
@@ -623,264 +639,6 @@ static void op_alu(InstrType *instr) {
    update_pc();
 }
 
-static void op_di(InstrType *instr) {
-   reg_iff1 = 0;
-   reg_iff2 = 0;
-   update_pc();
-}
-
-static void op_ei(InstrType *instr) {
-   reg_iff1 = 1;
-   reg_iff2 = 2;
-   update_pc();
-}
-
-
-static void op_misc_rotate(InstrType *instr) {
-   if (reg_a < 0) {
-      set_flags_undefined();
-   } else {
-      int rot_op = (opcode >> 3) & 3;
-      int operand = reg_a;
-      int result;
-      switch (rot_op) {
-      case 0:
-         // RLC
-         result = (operand << 1) | (operand >> 7);
-         flag_c = (operand >> 7) & 1;
-         break;
-      case 1:
-         // RRC
-         result = (operand >> 1) | (operand << 7);
-         flag_c = operand & 1;
-         break;
-      case 2:
-         // RL
-         if (flag_c >= 0) {
-            result = (operand << 1) | flag_c;
-         } else {
-            result = -1;
-         }
-         flag_c = (operand >> 7) & 1;
-         break;
-      case 3:
-         // RR
-         if (flag_c >= 0) {
-            result = (flag_c << 7) | (operand >> 1);
-         } else {
-            result = -1;
-         }
-         flag_c = operand & 1;
-         break;
-      }
-      if (result >= 0) {
-         result &= 0xff;
-         set_sign_zero(result);
-         flag_pv = partab[result];
-      } else {
-         set_flags_undefined();
-      }
-   }
-   flag_h = 0;
-   flag_n = 0;
-   update_pc();
-}
-
-static void op_misc_daa(InstrType *instr) {
-   if (reg_a < 0 || flag_h < 0 || flag_c < 0 || flag_n < 0) {
-      reg_a = -1;
-      set_flags_undefined();
-   } else {
-      // Borrowed from YAZE
-      int temp = reg_a & 0x0f;;
-      if (flag_n) {
-         // last operation was a subtract
-         int hd = flag_c || reg_a > 0x99;
-         if (flag_h || (temp > 9)) {
-            // adjust low digit
-            if (temp > 5) {
-               flag_h = 0;
-            }
-            reg_a -= 6;
-            reg_a &= 0xff;
-         }
-         if (hd) {
-            // adjust high digit
-            reg_a -= 0x160;
-         }
-      } else {
-         // last operation was an add
-         if (flag_h || (temp > 9)) {
-            /* adjust low digit */
-            flag_h = (temp > 9);
-            reg_a += 6;
-         }
-         if (flag_c || ((reg_a & 0x1f0) > 0x90)) {
-            /* adjust high digit */
-            reg_a += 0x60;
-         }
-      }
-      flag_c |= (reg_a >> 8) & 1;
-      reg_a &= 0xff;
-      set_sign_zero(reg_a);
-      flag_pv = partab[reg_a];
-   }
-   update_pc();
-}
-
-static void op_misc_cpl(InstrType *instr) {
-   if (reg_a >= 0) {
-      reg_a ^= 0xff;
-   }
-   flag_h = 1;
-   flag_n = 1;
-   update_pc();
-}
-
-static void op_misc_scf(InstrType *instr) {
-   flag_h = 0;
-   flag_c = 1;
-   flag_n = 0;
-   update_pc();
-}
-
-static void op_misc_ccf(InstrType *instr) {
-   flag_h = flag_c;
-   if (flag_c >= 0) {
-      flag_c = flag_c ^ 1;
-   }
-   flag_n = 0;
-   update_pc();
-}
-
-static void op_ex_af(InstrType *instr) {
-   swap(&reg_a,   &alt_reg_a);
-   swap(&flag_s,  &alt_flag_s);
-   swap(&flag_z,  &alt_flag_z);
-   swap(&flag_f5, &alt_flag_f5);
-   swap(&flag_h,  &alt_flag_h);
-   swap(&flag_f3, &alt_flag_f3);
-   swap(&flag_pv, &alt_flag_pv);
-   swap(&flag_n,  &alt_flag_n);
-   swap(&flag_c,  &alt_flag_c);
-   update_pc();
-}
-
-static void op_exx(InstrType *instr) {
-   swap(&reg_b,   &alt_reg_b);
-   swap(&reg_c,   &alt_reg_c);
-   swap(&reg_d,   &alt_reg_d);
-   swap(&reg_e,   &alt_reg_e);
-   swap(&reg_h,   &alt_reg_h);
-   swap(&reg_l,   &alt_reg_l);
-   update_pc();
-};
-
-static void op_ex_de_hl(InstrType *instr) {
-   swap(&reg_d,   &reg_h);
-   swap(&reg_e,   &reg_l);
-   update_pc();
-}
-
-static void op_ex_tos_hl(InstrType *instr) {
-   // (SP) <=> L; (SP + 1) <=> H
-   if (reg_h >= 0 && reg_h != ((arg_write >> 8) & 0xff)) {
-      failflag = 1;
-   }
-   reg_h = (arg_read >> 8) & 0xff;
-   if (reg_l >= 0 && reg_l != (arg_write & 0xff)) {
-      failflag = 1;
-   }
-   reg_l = arg_read & 0xff;
-   update_pc();
-}
-
-static void op_ex_tos_index(InstrType *instr) {
-   // (SP) <=> Index_low; (SP + 1) <=> Index_high
-   int *i = IS_IY ? &reg_iy : &reg_ix;
-   if ((*i) >= 0 && (*i) != arg_write) {
-      failflag = 1;
-   }
-   *i = arg_read;
-   update_pc();
-}
-
-static void op_nop(InstrType *instr) {
-   update_pc();
-}
-
-static void op_halt(InstrType *instr) {
-   // Don't update pc
-}
-
-static void op_load_reg8(InstrType *instr) {
-   // LD r[y], r[z]
-   int dst_id  = (opcode >> 3) & 7;
-   int src_id  = opcode & 7;
-   int *dst = reg_ptr[dst_id];
-   int *src = reg_ptr[src_id];
-   if (dst_id == ID_MEMORY) {
-      if ((*src) >= 0 && (*src) != arg_write) {
-         failflag = 1;
-      }
-   } else {
-      *dst = *src;
-   }
-   update_pc();
-}
-
-static void op_load_imm8(InstrType *instr) {
-   // LD r[y], n
-   int reg_id  = (opcode >> 3) & 7;
-   int *reg = reg_ptr[reg_id];
-   if (reg_id == ID_MEMORY) {
-      if (arg_imm != arg_write) {
-         failflag = 1;
-      }
-   } else {
-      *reg = arg_imm;
-   }
-   update_pc();
-}
-
-static void op_load_imm16(InstrType *instr) {
-   int reg_id = (opcode >> 4) & 3;
-   write_reg_pair(reg_id, arg_imm);
-   update_pc();
-}
-
-
-static void op_load_a(InstrType *instr) {
-   // EA = (BC) or (DE) or (nn)
-   reg_a = arg_read;
-   update_pc();
-}
-
-static void op_load_hl(InstrType *instr) {
-   // EA = (nn)
-   write_reg_pair(ID_RR_HL, arg_read);
-   update_pc();
-}
-
-static void op_store_a(InstrType *instr) {
-   // EA = (BC) or (DE) or (nn)
-   if (reg_a >= 0 && reg_a != arg_write) {
-      failflag = 1;
-   }
-   reg_a = arg_write;
-   update_pc();
-}
-
-static void op_store_hl(InstrType *instr) {
-   // EA = (nn)
-   int hl = read_reg_pair(ID_RR_HL);
-   if (hl >= 0 && hl != arg_write) {
-      failflag = 1;
-   }
-   write_reg_pair(ID_RR_HL, arg_write);
-   update_pc();
-}
-
 static void op_add_hl_rr(InstrType *instr) {
    int reg_id = (opcode >> 4) & 3;
    int op1 = read_reg_pair(ID_RR_HL);
@@ -896,48 +654,6 @@ static void op_add_hl_rr(InstrType *instr) {
       write_reg_pair(ID_RR_HL, result & 0xffff);
    }
    flag_n = 0;
-   update_pc();
-}
-
-static void op_load_mem16(InstrType *instr) {
-   int reg_id = (opcode >> 4) & 3;
-   write_reg_pair(reg_id, arg_read);
-   update_pc();
-}
-
-static void op_store_mem16(InstrType *instr) {
-   int reg_id = (opcode >> 4) & 3;
-   switch(reg_id) {
-   case 0:
-      if (reg_b >= 0 && reg_b != ((arg_write >> 8) & 0xff)) {
-         failflag = 1;
-      }
-      if (reg_c >= 0 && reg_c != (arg_write & 0xff)) {
-         failflag = 1;
-      }
-      break;
-   case 1:
-      if (reg_d >= 0 && reg_d != ((arg_write >> 8) & 0xff)) {
-         failflag = 1;
-      }
-      if (reg_e >= 0 && reg_e != (arg_write & 0xff)) {
-         failflag = 1;
-      }
-      break;
-   case 2:
-      if (reg_h >= 0 && reg_h != ((arg_write >> 8) & 0xff)) {
-         failflag = 1;
-      }
-      if (reg_l >= 0 && reg_l != (arg_write & 0xff)) {
-         failflag = 1;
-      }
-      break;
-   case 3:
-      if (reg_sp >= 0 && arg_write >> 8) {
-         failflag = 1;
-      }
-      break;
-   }
    update_pc();
 }
 
@@ -1070,6 +786,313 @@ static void op_dec_idx_disp(InstrType *instr) {
    update_pc();
 }
 
+// ===================================================================
+// Emulated instructions - Miscellaneous
+// ===================================================================
+
+static void op_di(InstrType *instr) {
+   reg_iff1 = 0;
+   reg_iff2 = 0;
+   update_pc();
+}
+
+static void op_ei(InstrType *instr) {
+   reg_iff1 = 1;
+   reg_iff2 = 2;
+   update_pc();
+}
+
+
+static void op_misc_rotate(InstrType *instr) {
+   if (reg_a < 0) {
+      set_flags_undefined();
+   } else {
+      int rot_op = (opcode >> 3) & 3;
+      int operand = reg_a;
+      int result;
+      switch (rot_op) {
+      case 0:
+         // RLC
+         result = (operand << 1) | (operand >> 7);
+         flag_c = (operand >> 7) & 1;
+         break;
+      case 1:
+         // RRC
+         result = (operand >> 1) | (operand << 7);
+         flag_c = operand & 1;
+         break;
+      case 2:
+         // RL
+         if (flag_c >= 0) {
+            result = (operand << 1) | flag_c;
+         } else {
+            result = -1;
+         }
+         flag_c = (operand >> 7) & 1;
+         break;
+      case 3:
+         // RR
+         if (flag_c >= 0) {
+            result = (flag_c << 7) | (operand >> 1);
+         } else {
+            result = -1;
+         }
+         flag_c = operand & 1;
+         break;
+      }
+      if (result >= 0) {
+         result &= 0xff;
+         set_sign_zero(result);
+         flag_pv = partab[result];
+      } else {
+         set_flags_undefined();
+      }
+   }
+   flag_h = 0;
+   flag_n = 0;
+   update_pc();
+}
+
+static void op_misc_daa(InstrType *instr) {
+   if (reg_a < 0 || flag_h < 0 || flag_c < 0 || flag_n < 0) {
+      reg_a = -1;
+      set_flags_undefined();
+   } else {
+      // Borrowed from YAZE
+      int temp = reg_a & 0x0f;;
+      if (flag_n) {
+         // last operation was a subtract
+         int hd = flag_c || reg_a > 0x99;
+         if (flag_h || (temp > 9)) {
+            // adjust low digit
+            if (temp > 5) {
+               flag_h = 0;
+            }
+            reg_a -= 6;
+            reg_a &= 0xff;
+         }
+         if (hd) {
+            // adjust high digit
+            reg_a -= 0x160;
+         }
+      } else {
+         // last operation was an add
+         if (flag_h || (temp > 9)) {
+            /* adjust low digit */
+            flag_h = (temp > 9);
+            reg_a += 6;
+         }
+         if (flag_c || ((reg_a & 0x1f0) > 0x90)) {
+            /* adjust high digit */
+            reg_a += 0x60;
+         }
+      }
+      flag_c |= (reg_a >> 8) & 1;
+      reg_a &= 0xff;
+      set_sign_zero(reg_a);
+      flag_pv = partab[reg_a];
+   }
+   update_pc();
+}
+
+static void op_misc_cpl(InstrType *instr) {
+   if (reg_a >= 0) {
+      reg_a ^= 0xff;
+   }
+   flag_h = 1;
+   flag_n = 1;
+   update_pc();
+}
+
+static void op_misc_scf(InstrType *instr) {
+   flag_h = 0;
+   flag_c = 1;
+   flag_n = 0;
+   update_pc();
+}
+
+static void op_misc_ccf(InstrType *instr) {
+   flag_h = flag_c;
+   if (flag_c >= 0) {
+      flag_c = flag_c ^ 1;
+   }
+   flag_n = 0;
+   update_pc();
+}
+
+// ===================================================================
+// Emulated instructions - Exchange
+// ===================================================================
+
+static void op_ex_af(InstrType *instr) {
+   swap(&reg_a,   &alt_reg_a);
+   swap(&flag_s,  &alt_flag_s);
+   swap(&flag_z,  &alt_flag_z);
+   swap(&flag_f5, &alt_flag_f5);
+   swap(&flag_h,  &alt_flag_h);
+   swap(&flag_f3, &alt_flag_f3);
+   swap(&flag_pv, &alt_flag_pv);
+   swap(&flag_n,  &alt_flag_n);
+   swap(&flag_c,  &alt_flag_c);
+   update_pc();
+}
+
+static void op_exx(InstrType *instr) {
+   swap(&reg_b,   &alt_reg_b);
+   swap(&reg_c,   &alt_reg_c);
+   swap(&reg_d,   &alt_reg_d);
+   swap(&reg_e,   &alt_reg_e);
+   swap(&reg_h,   &alt_reg_h);
+   swap(&reg_l,   &alt_reg_l);
+   update_pc();
+};
+
+static void op_ex_de_hl(InstrType *instr) {
+   swap(&reg_d,   &reg_h);
+   swap(&reg_e,   &reg_l);
+   update_pc();
+}
+
+static void op_ex_tos_hl(InstrType *instr) {
+   // (SP) <=> L; (SP + 1) <=> H
+   if (reg_h >= 0 && reg_h != ((arg_write >> 8) & 0xff)) {
+      failflag = 1;
+   }
+   reg_h = (arg_read >> 8) & 0xff;
+   if (reg_l >= 0 && reg_l != (arg_write & 0xff)) {
+      failflag = 1;
+   }
+   reg_l = arg_read & 0xff;
+   update_pc();
+}
+
+static void op_ex_tos_index(InstrType *instr) {
+   // (SP) <=> Index_low; (SP + 1) <=> Index_high
+   int *i = IS_IY ? &reg_iy : &reg_ix;
+   if ((*i) >= 0 && (*i) != arg_write) {
+      failflag = 1;
+   }
+   *i = arg_read;
+   update_pc();
+}
+
+// ===================================================================
+// Emulated instructions - Load
+// ===================================================================
+
+static void op_load_reg8(InstrType *instr) {
+   // LD r[y], r[z]
+   int dst_id  = (opcode >> 3) & 7;
+   int src_id  = opcode & 7;
+   int *dst = reg_ptr[dst_id];
+   int *src = reg_ptr[src_id];
+   if (dst_id == ID_MEMORY) {
+      if ((*src) >= 0 && (*src) != arg_write) {
+         failflag = 1;
+      }
+   } else {
+      *dst = *src;
+   }
+   update_pc();
+}
+
+static void op_load_imm8(InstrType *instr) {
+   // LD r[y], n
+   int reg_id  = (opcode >> 3) & 7;
+   int *reg = reg_ptr[reg_id];
+   if (reg_id == ID_MEMORY) {
+      if (arg_imm != arg_write) {
+         failflag = 1;
+      }
+   } else {
+      *reg = arg_imm;
+   }
+   update_pc();
+}
+
+static void op_load_imm16(InstrType *instr) {
+   int reg_id = (opcode >> 4) & 3;
+   write_reg_pair(reg_id, arg_imm);
+   update_pc();
+}
+
+
+static void op_load_a(InstrType *instr) {
+   // EA = (BC) or (DE) or (nn)
+   reg_a = arg_read;
+   update_pc();
+}
+
+static void op_load_hl(InstrType *instr) {
+   // EA = (nn)
+   write_reg_pair(ID_RR_HL, arg_read);
+   update_pc();
+}
+
+static void op_store_a(InstrType *instr) {
+   // EA = (BC) or (DE) or (nn)
+   if (reg_a >= 0 && reg_a != arg_write) {
+      failflag = 1;
+   }
+   reg_a = arg_write;
+   update_pc();
+}
+
+static void op_store_hl(InstrType *instr) {
+   // EA = (nn)
+   int hl = read_reg_pair(ID_RR_HL);
+   if (hl >= 0 && hl != arg_write) {
+      failflag = 1;
+   }
+   write_reg_pair(ID_RR_HL, arg_write);
+   update_pc();
+}
+
+static void op_load_mem16(InstrType *instr) {
+   int reg_id = (opcode >> 4) & 3;
+   write_reg_pair(reg_id, arg_read);
+   update_pc();
+}
+
+static void op_store_mem16(InstrType *instr) {
+   int reg_id = (opcode >> 4) & 3;
+   switch(reg_id) {
+   case 0:
+      if (reg_b >= 0 && reg_b != ((arg_write >> 8) & 0xff)) {
+         failflag = 1;
+      }
+      if (reg_c >= 0 && reg_c != (arg_write & 0xff)) {
+         failflag = 1;
+      }
+      break;
+   case 1:
+      if (reg_d >= 0 && reg_d != ((arg_write >> 8) & 0xff)) {
+         failflag = 1;
+      }
+      if (reg_e >= 0 && reg_e != (arg_write & 0xff)) {
+         failflag = 1;
+      }
+      break;
+   case 2:
+      if (reg_h >= 0 && reg_h != ((arg_write >> 8) & 0xff)) {
+         failflag = 1;
+      }
+      if (reg_l >= 0 && reg_l != (arg_write & 0xff)) {
+         failflag = 1;
+      }
+      break;
+   case 3:
+      if (reg_sp >= 0 && arg_write >> 8) {
+         failflag = 1;
+      }
+      break;
+   }
+   update_pc();
+}
+
+// ===================================================================
+// Emulated instructions - Bit
+// ===================================================================
 
 static void op_bit(InstrType *instr) {
    int reg_id   = opcode & 7;
@@ -1620,7 +1643,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 1, 0, False, TYPE_0, "IN H,(C)",          op_NOT_IMPL     }, // 0x60
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),H",         op_NOT_IMPL     }, // 0x61
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,HL",         op_NOT_IMPL     }, // 0x62
-   {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),HL",     op_store_mem16 }, // 0x63
+   {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),HL",     op_store_mem16  }, // 0x63
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x64
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x65
    {0, 0, 0, 0, False, TYPE_0, "IM 0",              op_NOT_IMPL     }, // 0x66

@@ -82,6 +82,11 @@ static int reg_iff1;
 static int reg_iff2;
 static int reg_im;
 
+#define IM_MODE_0    0
+#define IM_MODE_0_1  1
+#define IM_MODE_1    2
+#define IM_MODE_2    3
+
 // Pointers to the registers,
 
 #define ID_MEMORY 6
@@ -950,6 +955,11 @@ static void op_ei(InstrType *instr) {
    update_pc();
 }
 
+static void op_im(InstrType *instr) {
+   reg_im = (opcode >> 3) & 3;
+   update_pc();
+}
+
 
 static void op_misc_rotate(InstrType *instr) {
    if (reg_a < 0) {
@@ -1128,6 +1138,11 @@ static void op_ex_tos_index(InstrType *instr) {
 // Emulated instructions - Load
 // ===================================================================
 
+static void op_load_sp_hl(InstrType *instr) {
+   reg_sp = read_reg_pair1(ID_RR_HL);
+   update_pc();
+}
+
 static void op_load_reg8(InstrType *instr) {
    // LD r[y], r[z]
    int dst_id  = (opcode >> 3) & 7;
@@ -1140,6 +1155,37 @@ static void op_load_reg8(InstrType *instr) {
       }
    } else {
       *dst = *src;
+   }
+   update_pc();
+}
+
+static void op_load_idx_l(InstrType *instr) {
+   int *reg = IS_IY ? &reg_iy : &reg_ix;
+   if ((*reg) >= 0) {
+      *reg &= 0xff00;
+      *reg |= arg_imm;
+   } else {
+      // Partial load case not covered
+      failflag = 2;
+   }
+   update_pc();
+}
+
+static void op_load_idx_h(InstrType *instr) {
+   int *reg = IS_IY ? &reg_iy : &reg_ix;
+   if ((*reg) >= 0) {
+      *reg &= 0x00ff;
+      *reg |= arg_imm << 8;
+   } else {
+      // Partial load case not covered
+      failflag = 2;
+   }
+   update_pc();
+}
+
+static void op_load_idx_disp(InstrType *instr) {
+   if (arg_imm != arg_write) {
+      failflag = 1;
    }
    update_pc();
 }
@@ -1159,8 +1205,13 @@ static void op_load_imm8(InstrType *instr) {
 }
 
 static void op_load_imm16(InstrType *instr) {
-   int reg_id = (opcode >> 4) & 3;
-   write_reg_pair1(reg_id, arg_imm);
+   if (prefix == 0xDD) {
+      reg_ix = arg_imm;
+   } else if (prefix == 0xFD) {
+      reg_iy = arg_imm;
+   } else {
+      write_reg_pair1((opcode >> 4) & 3, arg_imm);
+   }
    update_pc();
 }
 
@@ -1510,7 +1561,7 @@ static void op_bit(InstrType *instr) {
 
       case 1:
          // BIT
-         result = operand & ~(1 << minor_op);
+         result = operand & (1 << minor_op);
          set_sign_zero(result);
          flag_h = 1;
          flag_n = 0;
@@ -1826,7 +1877,7 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 0, False, TYPE_8, "OR %02Xh",          op_alu          }, // 0xF6
    {0, 0, 0,-2, False, TYPE_0, "RST 30h",           op_rst          }, // 0xF7
    {0, 0, 2, 0, True,  TYPE_0, "RET M",             op_NOT_IMPL     }, // 0xF8
-   {0, 0, 0, 0, False, TYPE_0, "LD SP,HL",          op_NOT_IMPL     }, // 0xF9
+   {0, 0, 0, 0, False, TYPE_0, "LD SP,HL",          op_load_sp_hl   }, // 0xF9
    {0, 2, 0, 0, False, TYPE_8, "JP M,%04Xh",        op_jp_cond      }, // 0xFA
    {0, 0, 0, 0, False, TYPE_0, "EI",                op_ei           }, // 0xFB
    {0, 2, 0,-2, True,  TYPE_8, "CALL M,%04Xh",      op_NOT_IMPL     }, // 0xFC
@@ -1911,7 +1962,7 @@ InstrType extended_instructions[256] = {
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),BC",     op_store_mem16  }, // 0x43
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x44
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x45
-   {0, 0, 0, 0, False, TYPE_0, "IM 0",              op_NOT_IMPL     }, // 0x46
+   {0, 0, 0, 0, False, TYPE_0, "IM 0",              op_im           }, // 0x46
    {0, 0, 0, 0, False, TYPE_0, "LD I,A",            op_NOT_IMPL     }, // 0x47
    {0, 0, 1, 0, False, TYPE_0, "IN C,(C)",          op_NOT_IMPL     }, // 0x48
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),C",         op_out_c_r      }, // 0x49
@@ -1919,7 +1970,7 @@ InstrType extended_instructions[256] = {
    {0, 2, 2, 0, False, TYPE_8, "LD BC,(%04Xh)",     op_load_mem16   }, // 0x4B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x4C
    {0, 0, 2, 0, False, TYPE_0, "RETI",              op_NOT_IMPL     }, // 0x4D
-   {0, 0, 0, 0, False, TYPE_0, "IM 0/1",            op_NOT_IMPL     }, // 0x4E
+   {0, 0, 0, 0, False, TYPE_0, "IM 0/1",            op_im           }, // 0x4E
    {0, 0, 0, 0, False, TYPE_0, "LD R,A",            op_NOT_IMPL     }, // 0x4F
 
    {0, 0, 1, 0, False, TYPE_0, "IN D,(C)",          op_NOT_IMPL     }, // 0x50
@@ -1928,7 +1979,7 @@ InstrType extended_instructions[256] = {
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),DE",     op_store_mem16  }, // 0x53
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x54
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x55
-   {0, 0, 0, 0, False, TYPE_0, "IM 1",              op_NOT_IMPL     }, // 0x56
+   {0, 0, 0, 0, False, TYPE_0, "IM 1",              op_im           }, // 0x56
    {0, 0, 0, 0, False, TYPE_0, "LD A,I",            op_NOT_IMPL     }, // 0x57
    {0, 0, 1, 0, False, TYPE_0, "IN E,(C)",          op_NOT_IMPL     }, // 0x58
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),E",         op_out_c_r      }, // 0x59
@@ -1936,7 +1987,7 @@ InstrType extended_instructions[256] = {
    {0, 2, 2, 0, False, TYPE_8, "LD DE,(%04Xh)",     op_load_mem16   }, // 0x5B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x5C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x5D
-   {0, 0, 0, 0, False, TYPE_0, "IM 2",              op_NOT_IMPL     }, // 0x5E
+   {0, 0, 0, 0, False, TYPE_0, "IM 2",              op_im           }, // 0x5E
    {0, 0, 0, 0, False, TYPE_0, "LD A,R",            op_NOT_IMPL     }, // 0x5F
 
    {0, 0, 1, 0, False, TYPE_0, "IN H,(C)",          op_NOT_IMPL     }, // 0x60
@@ -1945,7 +1996,7 @@ InstrType extended_instructions[256] = {
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),HL",     op_store_mem16  }, // 0x63
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x64
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x65
-   {0, 0, 0, 0, False, TYPE_0, "IM 0",              op_NOT_IMPL     }, // 0x66
+   {0, 0, 0, 0, False, TYPE_0, "IM 0",              op_im           }, // 0x66
    {0, 0, 1, 1, False, TYPE_0, "RRD",               op_NOT_IMPL     }, // 0x67
    {0, 0, 1, 0, False, TYPE_0, "IN L,(C)",          op_NOT_IMPL     }, // 0x68
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),L",         op_out_c_r      }, // 0x69
@@ -1953,7 +2004,7 @@ InstrType extended_instructions[256] = {
    {0, 2, 2, 0, False, TYPE_8, "LD HL,(%04Xh)",     op_load_mem16   }, // 0x6B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x6C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x6D
-   {0, 0, 0, 0, False, TYPE_0, "IM 0/1",            op_NOT_IMPL     }, // 0x6E
+   {0, 0, 0, 0, False, TYPE_0, "IM 0/1",            op_im           }, // 0x6E
    {0, 0, 1, 1, False, TYPE_0, "RLD",               op_NOT_IMPL     }, // 0x6F
 
    {0, 0, 1, 0, False, TYPE_0, "IN (C)",            op_NOT_IMPL     }, // 0x70
@@ -1962,7 +2013,7 @@ InstrType extended_instructions[256] = {
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),SP",     op_store_mem16  }, // 0x73
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x74
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x75
-   {0, 0, 0, 0, False, TYPE_0, "IM 1",              op_NOT_IMPL     }, // 0x76
+   {0, 0, 0, 0, False, TYPE_0, "IM 1",              op_im           }, // 0x76
    UNDEFINED,                                                          // 0x77
    {0, 0, 1, 0, False, TYPE_0, "IN A,(C)",          op_NOT_IMPL     }, // 0x78
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),A",         op_out_c_r      }, // 0x79
@@ -1970,7 +2021,7 @@ InstrType extended_instructions[256] = {
    {0, 2, 2, 0, False, TYPE_8, "LD SP,(%04Xh)",     op_load_mem16   }, // 0x7B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x7C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x7D
-   {0, 0, 0, 0, False, TYPE_0, "IM 2",              op_NOT_IMPL     }, // 0x7E
+   {0, 0, 0, 0, False, TYPE_0, "IM 2",              op_im           }, // 0x7E
    UNDEFINED,                                                          // 0x7F
 
    UNDEFINED,                                                          // 0x80
@@ -2422,12 +2473,12 @@ InstrType index_instructions[256] = {
    UNDEFINED,                                                          // 0x1F
 
    UNDEFINED,                                                          // 0x20
-   {0, 2, 0, 0, False, TYPE_4, "LD %s,%04Xh",       op_NOT_IMPL     }, // 0x21
+   {0, 2, 0, 0, False, TYPE_4, "LD %s,%04Xh",       op_load_imm16   }, // 0x21
    {0, 2, 0, 2, False, TYPE_3, "LD (%04Xh),%s",     op_NOT_IMPL     }, // 0x22
    {0, 0, 0, 0, False, TYPE_1, "INC %s",            op_inc_idx      }, // 0x23
    {0, 0, 0, 0, False, TYPE_1, "INC %sh",           op_inc_idx_h    }, // 0x24
    {0, 0, 0, 0, False, TYPE_1, "DEC %sh",           op_dec_idx_h    }, // 0x25
-   {0, 1, 0, 0, False, TYPE_4, "LD %sh,%02Xh",      op_NOT_IMPL     }, // 0x26
+   {0, 1, 0, 0, False, TYPE_4, "LD %sh,%02Xh",      op_load_idx_h   }, // 0x26
    UNDEFINED,                                                          // 0x27
    UNDEFINED,                                                          // 0x28
    {0, 0, 0, 0, False, TYPE_2, "ADD %s,%s",         op_NOT_IMPL     }, // 0x29
@@ -2435,7 +2486,7 @@ InstrType index_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_1, "DEC %s",            op_dec_idx      }, // 0x2B
    {0, 0, 0, 0, False, TYPE_1, "INC %sl",           op_inc_idx_l    }, // 0x2C
    {0, 0, 0, 0, False, TYPE_1, "DEC %sl",           op_dec_idx_l    }, // 0x2D
-   {0, 1, 0, 0, False, TYPE_4, "LD %sl,%02Xh",      op_NOT_IMPL     }, // 0x2E
+   {0, 1, 0, 0, False, TYPE_4, "LD %sl,%02Xh",      op_load_idx_l   }, // 0x2E
    UNDEFINED,                                                          // 0x2F
 
    UNDEFINED,                                                          // 0x30
@@ -2444,7 +2495,7 @@ InstrType index_instructions[256] = {
    UNDEFINED,                                                          // 0x33
    {1, 0, 1, 1, False, TYPE_5, "INC (%s%+d)",       op_inc_idx_disp }, // 0x34
    {1, 0, 1, 1, False, TYPE_5, "DEC (%s%+d)",       op_dec_idx_disp }, // 0x35
-   {1, 1, 0, 1, False, TYPE_6, "LD (%s%+d),%02xh",  op_NOT_IMPL     }, // 0x36
+   {1, 1, 0, 1, False, TYPE_6, "LD (%s%+d),%02xh",  op_load_idx_disp },// 0x36
    UNDEFINED,                                                          // 0x37
    UNDEFINED,                                                          // 0x38
    {0, 0, 0, 0, False, TYPE_1, "ADD %s,SP",         op_NOT_IMPL     }, // 0x39

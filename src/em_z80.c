@@ -8,6 +8,7 @@
 
 
 #include <stdio.h>
+#include <string.h>
 #include <inttypes.h>
 #include "em_z80.h"
 
@@ -100,6 +101,109 @@ int *reg_ptr[] = {
    &arg_read,
    &reg_a
 };
+
+// ===================================================================
+// Emulation output
+// ===================================================================
+
+static char buffer[80];
+
+static const char default_state[] = "A=?? F=???????? BC=???? DE=???? HL=???? IX=???? IY=???? SP=???? PC=????";
+
+#define OFFSET_A   2
+#define OFFSET_F   7
+#define OFFSET_B  19
+#define OFFSET_C  21
+#define OFFSET_D  27
+#define OFFSET_E  29
+#define OFFSET_H  35
+#define OFFSET_L  37
+#define OFFSET_IX 43
+#define OFFSET_IY 51
+#define OFFSET_SP 59
+#define OFFSET_PC 67
+
+static void write_hex1(char *buffer, int value) {
+   *buffer = value + (value < 10 ? '0' : 'A' - 10);
+}
+
+static void write_hex2(char *buffer, int value) {
+   write_hex1(buffer++, (value >> 4) & 15);
+   write_hex1(buffer++, (value >> 0) & 15);
+}
+
+static void write_hex4(char *buffer, int value) {
+   write_hex1(buffer++, (value >> 12) & 15);
+   write_hex1(buffer++, (value >> 8) & 15);
+   write_hex1(buffer++, (value >> 4) & 15);
+   write_hex1(buffer++, (value >> 0) & 15);
+}
+
+char *z80_get_state() {
+   strcpy(buffer, default_state);
+   if (reg_a >= 0) {
+      write_hex2(buffer + OFFSET_A, reg_a);
+   }
+   if (flag_s >= 0) {
+      write_hex1(buffer + OFFSET_F + 0, flag_s);
+   }
+   if (flag_z >= 0) {
+      write_hex1(buffer + OFFSET_F + 1, flag_z);
+   }
+   if (flag_f5 >= 0) {
+      write_hex1(buffer + OFFSET_F + 2, flag_f5);
+   }
+   if (flag_h >= 0) {
+      write_hex1(buffer + OFFSET_F + 3, flag_h);
+   }
+   if (flag_f3 >= 0) {
+      write_hex1(buffer + OFFSET_F + 4, flag_f3);
+   }
+   if (flag_pv >= 0) {
+      write_hex1(buffer + OFFSET_F + 5, flag_pv);
+   }
+   if (flag_n >= 0) {
+      write_hex1(buffer + OFFSET_F + 6, flag_n);
+   }
+   if (flag_c >= 0) {
+      write_hex1(buffer + OFFSET_F + 7, flag_c);
+   }
+   if (reg_b >= 0) {
+      write_hex2(buffer + OFFSET_B, reg_b);
+   }
+   if (reg_c >= 0) {
+      write_hex2(buffer + OFFSET_C, reg_c);
+   }
+   if (reg_d >= 0) {
+      write_hex2(buffer + OFFSET_D, reg_d);
+   }
+   if (reg_e >= 0) {
+      write_hex2(buffer + OFFSET_E, reg_e);
+   }
+   if (reg_h >= 0) {
+      write_hex2(buffer + OFFSET_H, reg_h);
+   }
+   if (reg_l >= 0) {
+      write_hex2(buffer + OFFSET_L, reg_l);
+   }
+   if (reg_ix >= 0) {
+      write_hex4(buffer + OFFSET_IX, reg_ix);
+   }
+   if (reg_iy >= 0) {
+      write_hex4(buffer + OFFSET_IY, reg_iy);
+   }
+   if (reg_sp >= 0) {
+      write_hex4(buffer + OFFSET_SP, reg_sp);
+   }
+   if (reg_pc >= 0) {
+      write_hex4(buffer + OFFSET_PC, reg_pc);
+   }
+   return buffer;
+}
+
+int z80_get_pc() {
+   return reg_pc;
+}
 
 // ===================================================================
 // Emulation reset
@@ -307,7 +411,7 @@ static void op_jr(InstrType *instr) {
    if (taken >= 0 && reg_pc >= 0) {
       update_pc();
       if (taken) {
-         reg_pc += + arg_dis;
+         reg_pc = (reg_pc + arg_dis) & 0xffff;
       }
    } else {
       reg_pc = -1;

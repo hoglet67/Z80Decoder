@@ -6,9 +6,14 @@
 
 #include "em_z80.h"
 
+#define MAX_INSTR_LEN 5
+
 #define BUFSIZE 8192
 
 uint16_t buffer[BUFSIZE];
+
+// Whether to emulate each decoded instruction, to track additional state (registers and flags)
+int do_emulate = 0;
 
 // ====================================================================
 // Argp processing
@@ -35,6 +40,13 @@ static struct argp_option options[] = {
    { "wait",           7, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for wait"},
    { "nmi",            8, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for nmi"},
    { "phi",            9, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for phi"},
+   { "debug",        'd',  "LEVEL",                   0, "Sets debug level (0 1 or 2)"},
+// Output options
+   { "address",      'a',        0,                   0, "Show address of instruction."},
+   { "hex",          'h',        0,                   0, "Show hex bytes of instruction."},
+   { "instruction",  'i',        0,                   0, "Show instruction."},
+   { "state",        's',        0,                   0, "Show register/flag state."},
+   { "cycles",       'y',        0,                   0, "Show number of bus cycles."},
    { 0 }
 };
 
@@ -49,6 +61,12 @@ struct arguments {
    int idx_nmi;
    int idx_phi;
    char *filename;
+   int show_address;
+   int show_hex;
+   int show_instruction;
+   int show_state;
+   int show_cycles;
+   int debug;
 } arguments;
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
@@ -112,6 +130,24 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
       } else {
          arguments->idx_phi = -1;
       }
+      break;
+   case 'd':
+      arguments->debug = atoi(arg);
+      break;
+   case 'a':
+      arguments->show_address = 1;
+      break;
+   case 'h':
+      arguments->show_hex = 1;
+      break;
+   case 'i':
+      arguments->show_instruction = 1;
+      break;
+   case 's':
+      arguments->show_state = 1;
+      break;
+   case 'y':
+      arguments->show_cycles = 1;
       break;
    case ARGP_KEY_ARG:
       arguments->filename = arg;
@@ -183,8 +219,10 @@ typedef enum {
    ANN_NONE,
    ANN_WARN,
    ANN_INSTR,
-   ANN_ROP,
-   ANN_WOP
+   ANN_ROP1,
+   ANN_WOP1,
+   ANN_ROP2,
+   ANN_WOP2
 } AnnType;
 
 
@@ -207,17 +245,16 @@ static Z80StateType state;
 
 static int nmi_pending = 0;
 
-void emulate_instruction() {
-   if (instruction && instruction->emulate) {
-      failflag = 0;
-      instruction->emulate(instruction);
-      if (failflag) {
-         printf("fail");
-      }
-   }
-}
 
-void decode_state(Z80CycleType cycle, int data) {
+// Indicates the data bus value was not processed, and needs
+// to be re-presented
+#define BIT_UNPROCESSED 1
+
+// Indicates the end of an instruction
+#define BIT_INSTRUCTION 2
+
+
+int decode_state(Z80CycleType cycle, int data) {
 
    static int want_dis    = 0;
    static int want_imm    = 0;
@@ -228,7 +265,7 @@ void decode_state(Z80CycleType cycle, int data) {
 
    InstrType *table = NULL;
 
-   instr_len += 1;
+   int ret = 0;
 
    switch (state) {
 
@@ -249,7 +286,6 @@ void decode_state(Z80CycleType cycle, int data) {
       opcode      = 0;
       prefix      = 0;
       instruction = NULL;
-      instr_len   = 1;
       state       = S_OPCODE;
       // And fall through to S_OPCODE
 
@@ -257,18 +293,17 @@ void decode_state(Z80CycleType cycle, int data) {
       // Handle interrupt acknowledge
       if (prefix == 0) {
          if (nmi_pending ) {
-            printf(" (NMI taken)");
             nmi_pending = 0;
             // NMI always followed by two writes
             want_write = 2;
             state = S_WOP1;
-            return;
+            break;
          }
          if (cycle == C_INTACK) {
             // INT always followed by two writes
             want_write = 2;
             state = S_WOP1;
-            return;
+            break;
          }
       }
       // Check the cycle type...
@@ -276,19 +311,19 @@ void decode_state(Z80CycleType cycle, int data) {
          mnemonic = "Incorrect cycle type for prefix/opcode";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
-         return;
+         break;
       }
       if (prefix == 0) {
          // Process any first prefix byte
          if (data == 0xCB || data == 0xED || data == 0xDD || data == 0xFD) {
             prefix = data;
-            return;
+            break;
          }
       } else if (data == 0xCB && (prefix == 0xDD || prefix == 0xFD)) {
          // Process any second prefix byte, and then then the pre-displacement
          prefix = (prefix << 8) | data;
          state = S_PREDIS;
-         return;
+         break;
       }
       // Otherwise, continue to decode the opcode
       table = table_by_prefix(prefix);
@@ -299,7 +334,7 @@ void decode_state(Z80CycleType cycle, int data) {
          mnemonic = "Invalid instruction";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
-         return;
+         break;
       }
       want_dis    = instruction->want_dis;
       want_imm    = instruction->want_imm;
@@ -326,7 +361,7 @@ void decode_state(Z80CycleType cycle, int data) {
             state = S_WOP1;
          } else {
             state = S_IDLE;
-            emulate_instruction();
+            ret = BIT_INSTRUCTION;
          }
       }
       break;
@@ -336,7 +371,7 @@ void decode_state(Z80CycleType cycle, int data) {
          mnemonic = "Incorrect cycle type for pre-displacement";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
-         return;
+         break;
       }
       arg_dis = (char) data; // treat as signed
       state = S_OPCODE;
@@ -347,7 +382,7 @@ void decode_state(Z80CycleType cycle, int data) {
          mnemonic = "Incorrect cycle type for post displacement";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
-         return;
+         break;
       }
       arg_dis = (char) data;
       if (want_imm > 0) {
@@ -360,7 +395,7 @@ void decode_state(Z80CycleType cycle, int data) {
             state = S_WOP1;
          } else {
             state = S_IDLE;
-            emulate_instruction();
+            ret = BIT_INSTRUCTION;
          }
       }
       break;
@@ -370,7 +405,7 @@ void decode_state(Z80CycleType cycle, int data) {
          mnemonic = "Incorrect cycle type for immediate1";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
-         return;
+         break;
       }
       arg_imm = data;
       if (want_imm > 1) {
@@ -383,7 +418,7 @@ void decode_state(Z80CycleType cycle, int data) {
             state = S_WOP1;
          } else {
             state = S_IDLE;
-            emulate_instruction();
+            ret = BIT_INSTRUCTION;
          }
       }
       break;
@@ -393,7 +428,7 @@ void decode_state(Z80CycleType cycle, int data) {
          mnemonic = "Incorrect cycle type for immediate2";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
-         return;
+         break;
       }
       arg_imm |= data << 8;
       ann_dasm = ANN_INSTR;
@@ -403,7 +438,7 @@ void decode_state(Z80CycleType cycle, int data) {
          state = S_WOP1;
       } else {
          state = S_IDLE;
-         emulate_instruction();
+         ret = BIT_INSTRUCTION;
       }
       break;
 
@@ -413,21 +448,18 @@ void decode_state(Z80CycleType cycle, int data) {
       // will be the fetch of the next instruction
       if (conditional && (cycle == C_FETCH || cycle == C_INTACK)) {
          state = S_IDLE;
-         emulate_instruction();
-         // Recusively call ourselves to handle this case cleanly
-         decode_state(cycle, data);
-         return;
+         ret = BIT_INSTRUCTION | BIT_UNPROCESSED;
+         break;
       }
       if (cycle != C_MEMRD && cycle != C_IORD) {
          mnemonic = "Incorrect cycle type for read op1";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
-         return;
+         break;
       }
       arg_read = data;
       if (want_read < 2) {
-         mnemonic = "Rd: %02X";
-         ann_dasm = ANN_ROP;
+         ann_dasm = ANN_ROP1;
       }
       if (want_read > 1) {
          state = S_ROP2;
@@ -435,7 +467,7 @@ void decode_state(Z80CycleType cycle, int data) {
          state = S_WOP1;
       } else {
          state = S_IDLE;
-         emulate_instruction();
+         ret = BIT_INSTRUCTION;
       }
       break;
 
@@ -444,16 +476,15 @@ void decode_state(Z80CycleType cycle, int data) {
          mnemonic = "Incorrect cycle type for read op2";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
-         return;
+         break;
       }
       arg_read |= data << 8;
-      mnemonic = "Rd: %04X";
-      ann_dasm = ANN_ROP;
+      ann_dasm = ANN_ROP2;
       if (want_write > 0) {
          state = S_WOP1;
       } else {
          state = S_IDLE;
-         emulate_instruction();
+         ret = BIT_INSTRUCTION;
       }
       break;
 
@@ -463,25 +494,22 @@ void decode_state(Z80CycleType cycle, int data) {
       // will be the fetch of the next instruction
       if (conditional && (cycle == C_FETCH || cycle == C_INTACK)) {
          state = S_IDLE;
-         emulate_instruction();
-         // Recusively call ourselves to handle this case cleanly
-         decode_state(cycle, data);
-         return;
+         ret = BIT_INSTRUCTION | BIT_UNPROCESSED;
+         break;
       }
       if (cycle != C_MEMWR && cycle != C_IOWR) {
          mnemonic = "Incorrect cycle type for write op1";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
-         return;
+         break;
       }
       arg_write = data;
       if (want_write > 1) {
          state = S_WOP2;
       } else {
-         mnemonic = "Wr: %02X";
-         ann_dasm = ANN_WOP;
+         ann_dasm = ANN_WOP1;
          state = S_IDLE;
-         emulate_instruction();
+         ret = BIT_INSTRUCTION;
       }
       break;
 
@@ -490,93 +518,40 @@ void decode_state(Z80CycleType cycle, int data) {
          mnemonic = "Incorrect cycle type for write op2";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
-         return;
+         break;
       }
       if (want_wr_be) {
          arg_write = (arg_write << 8) | data;
       } else {
          arg_write |= data << 8;
       }
-      mnemonic = "Wr: %04X";
-      ann_dasm = ANN_WOP;
+      ann_dasm = ANN_WOP2;
       state = S_IDLE;
-      emulate_instruction();
+      ret = BIT_INSTRUCTION;
       break;
    }
+
+   return ret;
 }
 
-void decode_cycle_begin() {
-   // for now do nothing
-}
-
-void decode_cycle_end(Z80CycleType cycle, int nmi, int data) {
-   decode_state(cycle, data);
-   switch (ann_dasm) {
-   case ANN_INSTR:
-      printf(" : %d : ", instr_len);
-      switch (format) {
-      case TYPE_1:
-         printf(mnemonic, arg_reg);
-         break;
-      case TYPE_2:
-         printf(mnemonic, arg_reg, arg_reg);
-         break;
-      case TYPE_3:
-         printf(mnemonic, arg_imm, arg_reg);
-         break;
-      case TYPE_4:
-         printf(mnemonic, arg_reg, arg_imm);
-         break;
-      case TYPE_5:
-         printf(mnemonic, arg_reg, arg_dis);
-         break;
-      case TYPE_6:
-         printf(mnemonic, arg_reg, arg_dis, arg_imm);
-         break;
-      case TYPE_7:
-         printf(mnemonic, arg_dis + instr_len);
-         break;
-      case TYPE_8:
-         printf(mnemonic, arg_imm);
-         break;
-      default:
-         printf(mnemonic, 0);
-         break;
-      }
-      break;
-   case ANN_ROP:
-      printf(" : ");
-      printf(mnemonic, arg_read);
-      break;
-   case ANN_WOP:
-      printf(" : ");
-      printf(mnemonic, arg_write);
-      break;
-   case ANN_WARN:
-      printf(" : WARNING: ");
-      printf(mnemonic, 0);
-      break;
-   default:
-      break;
-   }
-   ann_dasm = ANN_NONE;
-}
-
-void decode_cycle_trans() {
-   printf("Illegal transition between control states\n");
-}
 
 void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi, int nmi, int data) {
    static Z80CycleType prev_cycle = C_NONE;
-   static int prev_data = 0;
-   static int prev_m1 = 0;
-   static int prev_rd = 0;
-   static int prev_wr = 0;
-   static int prev_mreq = 0;
-   static int prev_iorq = 0;
-   static int prev_wait = 0;
-   static int prev_nmi = 0;
-   static int prev_phi = 0;
+   static int prev_data           = 0;
+   static int prev_m1             = 0;
+   static int prev_rd             = 0;
+   static int prev_wr             = 0;
+   static int prev_mreq           = 0;
+   static int prev_iorq           = 0;
+   static int prev_wait           = 0;
+   static int prev_nmi            = 0;
+   static int prev_phi            = 0;
+   static int instr_cycles        = 0;
+   static int instr_bytes[MAX_INSTR_LEN];
+
+   int ret;
+   int cycle_end;
+   int colon;
 
    Z80CycleType cycle = C_NONE;
    if (mreq == 0) {
@@ -598,42 +573,188 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
          cycle = C_IOWR;
       }
    }
+   cycle_end = (cycle != prev_cycle && cycle == C_NONE);
 
-   printf("%6s %10s %d %d %d %d %d %d %d %d %02x",
-          cycle_names[prev_cycle],
-          state_names[state],
-          prev_m1,
-          prev_rd,
-          prev_wr,
-          prev_mreq,
-          prev_iorq,
-          prev_wait,
-          prev_nmi,
-          prev_phi,
-          prev_data);
+   if (cycle != prev_cycle && cycle != C_NONE && prev_cycle != C_NONE) {
+      printf("WARNING: unexpected transition from %s to %s\n",
+             cycle_names[prev_cycle],
+             cycle_names[cycle]);
+   }
 
-   if (cycle != prev_cycle) {
-      if (prev_cycle == C_NONE) {
-         printf(" . ");
-         decode_cycle_begin();
-      } else if (cycle == C_NONE) {
-         printf(" * ");
-         decode_cycle_end(prev_cycle, prev_nmi, prev_data);
-      } else {
-         printf(" . ");
-         decode_cycle_trans();
+   if (arguments.debug > 1 || (arguments.debug == 1 && cycle_end)) {
+      printf("%6s %10s %d %d %d %d %d %d %d %d %02x %c ",
+             cycle_names[prev_cycle],
+             state_names[state],
+             prev_m1,
+             prev_rd,
+             prev_wr,
+             prev_mreq,
+             prev_iorq,
+             prev_wait,
+             prev_nmi,
+             prev_phi,
+             prev_data,
+             cycle_end ? '*' : '.'
+         );
+
+      switch (ann_dasm) {
+      case ANN_ROP1:
+         printf(": Rd=%02X", arg_read);
+         ann_dasm = ANN_NONE;
+         break;
+      case ANN_ROP2:
+         printf(": Rd=%04X", arg_read);
+         ann_dasm = ANN_NONE;
+         break;
+      case ANN_WOP1:
+         printf(": Wd=%02X", arg_write);
+         ann_dasm = ANN_NONE;
+         break;
+      case ANN_WOP2:
+         printf(": Wd=%04X", arg_write);
+         ann_dasm = ANN_NONE;
+         break;
+      default:
+         break;
       }
-   } else {
-      printf(" . ");
+      printf("\n");
    }
 
-   // Look for a falling edge of NMI
-   if (nmi == 0 && prev_nmi == 1) {
-      nmi_pending = 1;
-      printf("(NMI pending)");
-   }
+   instr_cycles++;
 
-   printf("\n");
+   if (cycle_end) {
+
+      // At the end of a cycle, inform the instruction decoder
+      do {
+
+         instr_bytes[instr_len] = prev_data;
+
+         ret = decode_state(prev_cycle, prev_data);
+
+         if (!(ret & BIT_UNPROCESSED)) {
+            instr_len++;
+         }
+
+         // Handle Warnings
+         if (ann_dasm == ANN_WARN) {
+            printf("WARNING: %s\n", mnemonic);
+            ann_dasm = ANN_NONE;
+         }
+
+
+         if (ret & BIT_INSTRUCTION) {
+            int count = 0;
+            colon = 0;
+            // We have everything available to process a complete instruction
+            if (arguments.show_address) {
+               if (z80_get_pc() >= 0) {
+                  printf("%04X", z80_get_pc());
+               } else {
+                  printf("????");
+               }
+               colon = 1;
+            }
+            if (arguments.show_hex) {
+               if (colon) {
+                  printf(" : ");
+               }
+               for (int i = 0; i < MAX_INSTR_LEN; i++) {
+                  if (i < instr_len) {
+                     printf("%02X ", instr_bytes[i]);
+                  } else {
+                     printf("   ");
+                  }
+               }
+               colon = 1;
+            }
+            if (arguments.show_instruction) {
+               if (colon) {
+                  printf(" : ");
+               }
+               switch (format) {
+               case TYPE_1:
+                  count = printf(mnemonic, arg_reg);
+                  break;
+               case TYPE_2:
+                  count = printf(mnemonic, arg_reg, arg_reg);
+                  break;
+               case TYPE_3:
+                  count = printf(mnemonic, arg_imm, arg_reg);
+                  break;
+               case TYPE_4:
+                  count = printf(mnemonic, arg_reg, arg_imm);
+                  break;
+               case TYPE_5:
+                  count = printf(mnemonic, arg_reg, arg_dis);
+                  break;
+               case TYPE_6:
+                  count = printf(mnemonic, arg_reg, arg_dis, arg_imm);
+                  break;
+               case TYPE_7:
+                  count = printf(mnemonic, arg_dis + instr_len);
+                  break;
+               case TYPE_8:
+                  count = printf(mnemonic, arg_imm);
+                  break;
+               default:
+                  count = printf(mnemonic, 0);
+                  break;
+               }
+               // Pad the disassembled instruction
+               if (arguments.show_cycles || arguments.show_state) {
+                  while (count++ < 20) {
+                     printf(" ");
+                  }
+               }
+               colon = 1;
+            }
+            if (arguments.show_cycles) {
+               if (colon) {
+                  printf(" : ");
+               }
+               if (ret & BIT_UNPROCESSED) {
+                  instr_cycles--;
+               }
+               printf("%2d", instr_cycles);
+               colon = 1;
+            }
+            if (do_emulate) {
+               // Run the emulation
+               failflag = 0;
+               if (instruction && instruction->emulate) {
+                  instruction->emulate(instruction);
+               }
+            }
+            if (arguments.show_state) {
+               if (colon) {
+                  printf(" : ");
+               }
+               // Show the state after executing this instruction
+               printf("%s", z80_get_state());
+               if (failflag) {
+                  printf(": fail");
+               }
+               colon = 1;
+            }
+            if (colon) {
+               printf("\n");
+            }
+
+            // Reset the instruction variables
+            instr_len = 0;
+            instr_cycles = 0;
+
+         }
+
+      } while (ret & BIT_UNPROCESSED);
+
+
+      // Look for a falling edge of NMI
+      if (nmi == 0 && prev_nmi == 1) {
+         nmi_pending = 1;
+         printf("INFO: NMI pending\n");
+      }
+   }
 
    prev_cycle = cycle;
    prev_m1    = m1;
@@ -681,6 +802,9 @@ void decode(FILE *stream) {
    int phi;
    int data;
 
+   // TODO: fins a better place for this
+   z80_reset();
+
    while ((num = fread(buffer, sizeof(uint16_t), BUFSIZE, stream)) > 0) {
 
       uint16_t *sampleptr = &buffer[0];
@@ -721,8 +845,18 @@ int main(int argc, char *argv[]) {
    arguments.idx_nmi          = 14;
    arguments.idx_phi          = 15;
    arguments.filename         = NULL;
+   arguments.show_address     = 0;
+   arguments.show_hex         = 0;
+   arguments.show_instruction = 0;
+   arguments.show_state       = 0;
+   arguments.show_cycles      = 0;
+   arguments.debug            = 0;
 
    argp_parse(&argp, argc, argv, 0, 0, &arguments);
+
+   if (arguments.show_address || arguments.show_state) {
+      do_emulate = 1;
+   }
 
    FILE *stream;
    if (!arguments.filename || !strcmp(arguments.filename, "-")) {

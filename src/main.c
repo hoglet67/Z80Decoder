@@ -732,7 +732,11 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
                // Show the state after executing this instruction
                printf("%s", z80_get_state());
                if (failflag) {
-                  printf(": fail");
+                  if (failflag == 2) {
+                     printf(": not implemeted");
+                  } else {
+                     printf(": fail");
+                  }
                }
                colon = 1;
             }
@@ -744,16 +748,18 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
             instr_len = 0;
             instr_cycles = 0;
 
+            // Look for a falling edge of NMI
+            // TODO: this should be done at the end of every machine cycle
+            //if (nmi == 0 && prev_nmi == 1) {
+            //   nmi_pending = 1;
+            //   printf("INFO: NMI pending\n");
+            //}
+            //prev_nmi   = nmi;
+
          }
 
       } while (ret & BIT_UNPROCESSED);
 
-
-      // Look for a falling edge of NMI
-      if (nmi == 0 && prev_nmi == 1) {
-         nmi_pending = 1;
-         printf("INFO: NMI pending\n");
-      }
    }
 
    prev_cycle = cycle;
@@ -763,7 +769,6 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
    prev_mreq  = mreq;
    prev_iorq  = iorq;
    prev_wait  = wait;
-   prev_nmi   = nmi;
    prev_phi   = phi;
    prev_data  = data;
 

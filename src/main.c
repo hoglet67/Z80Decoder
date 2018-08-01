@@ -552,6 +552,7 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
    int ret;
    int cycle_end;
    int colon;
+   char target[10];
 
    Z80CycleType cycle = C_NONE;
    if (mreq == 0) {
@@ -691,7 +692,12 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
                   count = printf(mnemonic, arg_reg, arg_dis, arg_imm);
                   break;
                case TYPE_7:
-                  count = printf(mnemonic, arg_dis + instr_len);
+                  if (z80_get_pc() >= 0) {
+                     sprintf(target, "%04Xh", (z80_get_pc() + instr_len + arg_dis) & 0xffff);
+                  } else {
+                     sprintf(target, "$%+d", arg_dis + instr_len);
+                  }
+                  count = printf(mnemonic, target);
                   break;
                case TYPE_8:
                   count = printf(mnemonic, arg_imm);

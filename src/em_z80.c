@@ -512,6 +512,25 @@ static void op_jp_cond(InstrType *instr) {
    }
 }
 
+static void op_djnz(InstrType *instr) {
+   if (reg_b >= 0) {
+      reg_b = (reg_b - 1) & 0xff;
+      update_pc();
+      if (reg_b != 0) {
+         reg_pc = (reg_pc + arg_dis) & 0xffff;
+      }
+   } else {
+      reg_pc = -1;
+   }
+}
+
+static void op_rst(InstrType *instr) {
+   if (reg_pc >= 0 && reg_pc != arg_write) {
+      failflag = 1;
+   }
+   reg_pc = opcode & 0x38;
+}
+
 static void op_halt(InstrType *instr) {
    // Don't update pc
 }
@@ -1091,6 +1110,157 @@ static void op_store_mem16(InstrType *instr) {
 }
 
 // ===================================================================
+// Emulated instructions - In/Out
+// ===================================================================
+
+
+static void op_out_c_r(InstrType *instr) {
+   int reg_id = (opcode >> 3) & 7;
+   if (reg_id == 6) {
+      // reg_id 6 is used for OUT (C),0
+      if (arg_write != 0) {
+         failflag = 0;
+      }
+   } else {
+      int *reg = reg_ptr[reg_id];
+      if ((*reg) >= 0 && (*reg != arg_write)) {
+         failflag = 1;
+      }
+      *reg = arg_write;
+   }
+   update_pc();
+}
+
+static void op_out_nn_a(InstrType *instr) {
+   if (reg_a >= 0 && reg_a != arg_write) {
+      failflag = 1;
+   }
+   reg_a = arg_write;
+   update_pc();
+}
+
+
+// ===================================================================
+// Emulated instructions - Block In/Out
+// ===================================================================
+
+
+static void block_decrement_rr(int rr) {
+   int value = read_reg_pair(rr);
+   if (value >= 0) {
+      value = (value - 1) & 0xffff;
+   }
+   write_reg_pair(rr, value);
+}
+
+static void block_increment_rr(int rr) {
+   int value = read_reg_pair(rr);
+   if (value >= 0) {
+      value = (value + 1) & 0xffff;
+   }
+   write_reg_pair(rr, value);
+}
+
+static void block_decrement_bc() {
+   block_decrement_rr(ID_RR_BC);
+}
+
+static void block_decrement_de() {
+   block_decrement_rr(ID_RR_DE);
+}
+
+static void block_increment_de() {
+   block_increment_rr(ID_RR_DE);
+}
+
+static void block_decrement_hl() {
+   block_decrement_rr(ID_RR_HL);
+}
+
+static void block_increment_hl() {
+   block_increment_rr(ID_RR_HL);
+}
+
+static void block_decrement_b(int io_data) {
+   if (reg_b >= 0) {
+      reg_b = (reg_b - 1) & 0xff;
+      set_sign_zero(reg_b);
+      flag_n = (arg_write >> 7) & 1;
+      if (reg_l >= 0) {
+         flag_c = ((io_data + reg_l) > 255);
+         flag_pv = partab[((io_data + reg_l) & 7) ^ reg_b];
+      } else {
+         flag_c = -1;
+         flag_pv = -1;
+      }
+      flag_h = flag_c;
+   } else {
+      set_flags_undefined();
+   }
+}
+
+static void op_outd(InstrType *instr) {
+   int repeat_op = opcode & 0x10;
+   if (arg_write != arg_read) {
+      failflag = 1;
+   }
+   block_decrement_hl();
+   block_decrement_b(arg_write);
+   if (flag_z == 1 || !repeat_op) {
+      update_pc();
+   }
+}
+
+static void op_outi(InstrType *instr) {
+   int repeat_op = opcode & 0x10;
+   if (arg_write != arg_read) {
+      failflag = 1;
+   }
+   block_increment_hl();
+   block_decrement_b(arg_write);
+   // TODO: Use cycles to infer termination
+   if (flag_z == 1 || !repeat_op) {
+      update_pc();
+   }
+}
+
+
+// ===================================================================
+// Emulated instructions - Block load
+// ===================================================================
+
+static void op_ldd_ldi(InstrType *instr) {
+   // LDI   0xA0
+   // LDD   0xA8
+   // LDIR  0xB0
+   // LDDR  0xB8
+   int dec_op = opcode & 0x08;
+   int repeat_op = opcode & 0x10;
+   if (arg_write != arg_read) {
+      failflag = 1;
+   }
+   block_decrement_bc();
+   if (dec_op) {
+      block_decrement_de();
+      block_decrement_hl();
+   } else {
+      block_increment_de();
+      block_increment_hl();
+   }
+   flag_h = 0;
+   flag_n = 0;
+   if (reg_b >= 0 && reg_c >= 0) {
+      flag_pv = reg_b == 0 && reg_c == 0;
+   } else {
+      flag_pv = -1;
+   }
+   // TODO: Use cycles to infer termination
+   if (flag_pv == 1 || !repeat_op) {
+      update_pc();
+   }
+}
+
+// ===================================================================
 // Emulated instructions - Bit
 // ===================================================================
 
@@ -1280,7 +1450,7 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 0, False, TYPE_8, "LD C,%02Xh",        op_load_imm8    }, // 0x0E
    {0, 0, 0, 0, False, TYPE_0, "RRCA",              op_misc_rotate  }, // 0x0F
 
-   {1, 0, 0, 0, False, TYPE_7, "DJNZ $%+d",         op_NOT_IMPL     }, // 0x10
+   {1, 0, 0, 0, False, TYPE_7, "DJNZ %s",           op_djnz         }, // 0x10
    {0, 2, 0, 0, False, TYPE_8, "LD DE,%04Xh",       op_load_imm16   }, // 0x11
    {0, 0, 0, 1, False, TYPE_0, "LD (DE),A",         op_store_a      }, // 0x12
    {0, 0, 0, 0, False, TYPE_0, "INC DE",            op_inc_rr       }, // 0x13
@@ -1288,7 +1458,7 @@ InstrType main_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "DEC D",             op_dec_r        }, // 0x15
    {0, 1, 0, 0, False, TYPE_8, "LD D,%02Xh",        op_load_imm8    }, // 0x16
    {0, 0, 0, 0, False, TYPE_0, "RLA",               op_misc_rotate  }, // 0x17
-   {1, 0, 0, 0, False, TYPE_7, "JR $%+d",           op_jr           }, // 0x18
+   {1, 0, 0, 0, False, TYPE_7, "JR %s",             op_jr           }, // 0x18
    {0, 0, 0, 0, False, TYPE_0, "ADD HL,DE",         op_add_hl_rr    }, // 0x19
    {0, 0, 1, 0, False, TYPE_0, "LD A,(DE)",         op_load_a       }, // 0x1A
    {0, 0, 0, 0, False, TYPE_0, "DEC DE",            op_dec_rr       }, // 0x1B
@@ -1297,7 +1467,7 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 0, False, TYPE_8, "LD E,%02Xh",        op_load_imm8    }, // 0x1E
    {0, 0, 0, 0, False, TYPE_0, "RRA",               op_misc_rotate  }, // 0x1F
 
-   {1, 0, 0, 0, False, TYPE_7, "JR NZ,$%+d",        op_jr           }, // 0x20
+   {1, 0, 0, 0, False, TYPE_7, "JR NZ,%s",          op_jr           }, // 0x20
    {0, 2, 0, 0, False, TYPE_8, "LD HL,%04Xh",       op_load_imm16   }, // 0x21
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),HL",     op_store_hl     }, // 0x22
    {0, 0, 0, 0, False, TYPE_0, "INC HL",            op_inc_rr       }, // 0x23
@@ -1305,7 +1475,7 @@ InstrType main_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "DEC H",             op_dec_r        }, // 0x25
    {0, 1, 0, 0, False, TYPE_8, "LD H,%02Xh",        op_load_imm8    }, // 0x26
    {0, 0, 0, 0, False, TYPE_0, "DAA",               op_misc_daa     }, // 0x27
-   {1, 0, 0, 0, False, TYPE_7, "JR Z,$%+d",         op_jr           }, // 0x28
+   {1, 0, 0, 0, False, TYPE_7, "JR Z,%s",           op_jr           }, // 0x28
    {0, 0, 0, 0, False, TYPE_0, "ADD HL,HL",         op_add_hl_rr    }, // 0x29
    {0, 2, 2, 0, False, TYPE_8, "LD HL,(%04Xh)",     op_load_hl      }, // 0x2A
    {0, 0, 0, 0, False, TYPE_0, "DEC HL",            op_dec_rr       }, // 0x2B
@@ -1314,7 +1484,7 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 0, False, TYPE_8, "LD L,%02Xh",        op_load_imm8    }, // 0x2E
    {0, 0, 0, 0, False, TYPE_0, "CPL",               op_misc_cpl     }, // 0x2F
 
-   {1, 0, 0, 0, False, TYPE_7, "JR NC,$%+d",        op_jr           }, // 0x30
+   {1, 0, 0, 0, False, TYPE_7, "JR NC,%s",          op_jr           }, // 0x30
    {0, 2, 0, 0, False, TYPE_8, "LD SP,%04Xh",       op_load_imm16   }, // 0x31
    {0, 2, 0, 1, False, TYPE_8, "LD (%04Xh),A",      op_store_a      }, // 0x32
    {0, 0, 0, 0, False, TYPE_0, "INC SP",            op_inc_rr       }, // 0x33
@@ -1322,7 +1492,7 @@ InstrType main_instructions[256] = {
    {0, 0, 1, 1, False, TYPE_0, "DEC (HL)",          op_dec_r        }, // 0x35
    {0, 1, 0, 1, False, TYPE_8, "LD (HL),%02Xh",     op_load_imm8    }, // 0x36
    {0, 0, 0, 0, False, TYPE_0, "SCF",               op_misc_scf     }, // 0x37
-   {1, 0, 0, 0, False, TYPE_7, "JR C,$%+d",         op_jr           }, // 0x38
+   {1, 0, 0, 0, False, TYPE_7, "JR C,%s",           op_jr           }, // 0x38
    {0, 0, 0, 0, False, TYPE_0, "ADD HL,SP",         op_add_hl_rr    }, // 0x39
    {0, 2, 1, 0, False, TYPE_8, "LD A,(%04Xh)",      op_load_a       }, // 0x3A
    {0, 0, 0, 0, False, TYPE_0, "DEC SP",            op_dec_rr       }, // 0x3B
@@ -1474,7 +1644,7 @@ InstrType main_instructions[256] = {
    {0, 2, 0,-2, True,  TYPE_8, "CALL NZ,%04Xh",     op_jp_cond      }, // 0xC4
    {0, 0, 0,-2, False, TYPE_0, "PUSH BC",           op_NOT_IMPL     }, // 0xC5
    {0, 1, 0, 0, False, TYPE_8, "ADD A,%02Xh",       op_alu          }, // 0xC6
-   {0, 0, 0,-2, False, TYPE_0, "RST 00h",           op_NOT_IMPL     }, // 0xC7
+   {0, 0, 0,-2, False, TYPE_0, "RST 00h",           op_rst          }, // 0xC7
    {0, 0, 2, 0, True,  TYPE_0, "RET Z",             op_NOT_IMPL     }, // 0xC8
    {0, 0, 2, 0, False, TYPE_0, "RET",               op_NOT_IMPL     }, // 0xC9
    {0, 2, 0, 0, False, TYPE_8, "JP Z,%04Xh",        op_jp_cond      }, // 0xCA
@@ -1482,16 +1652,16 @@ InstrType main_instructions[256] = {
    {0, 2, 0,-2, True,  TYPE_8, "CALL Z,%04Xh",      op_NOT_IMPL     }, // 0xCC
    {0, 2, 0,-2, False, TYPE_8, "CALL %04Xh",        op_NOT_IMPL     }, // 0xCD
    {0, 1, 0, 0, False, TYPE_8, "ADC A,%02Xh",       op_alu          }, // 0xCE
-   {0, 0, 0,-2, False, TYPE_0, "RST 08h",           op_NOT_IMPL     }, // 0xCF
+   {0, 0, 0,-2, False, TYPE_0, "RST 08h",           op_rst          }, // 0xCF
 
    {0, 0, 2, 0, True,  TYPE_0, "RET NC",            op_NOT_IMPL     }, // 0xD0
    {0, 0, 2, 0, False, TYPE_0, "POP DE",            op_NOT_IMPL     }, // 0xD1
    {0, 2, 0, 0, False, TYPE_8, "JP NC,%04Xh",       op_jp_cond      }, // 0xD2
-   {0, 1, 0, 1, False, TYPE_8, "OUT (%02Xh),A",     op_NOT_IMPL     }, // 0xD3
+   {0, 1, 0, 1, False, TYPE_8, "OUT (%02Xh),A",     op_out_nn_a     }, // 0xD3
    {0, 2, 0,-2, True,  TYPE_8, "CALL NC,%04Xh",     op_NOT_IMPL     }, // 0xD4
    {0, 0, 0,-2, False, TYPE_0, "PUSH DE",           op_NOT_IMPL     }, // 0xD5
    {0, 1, 0, 0, False, TYPE_8, "SUB %02Xh",         op_alu          }, // 0xD6
-   {0, 0, 0,-2, False, TYPE_0, "RST 10h",           op_NOT_IMPL     }, // 0xD7
+   {0, 0, 0,-2, False, TYPE_0, "RST 10h",           op_rst          }, // 0xD7
    {0, 0, 2, 0, True,  TYPE_0, "RET C",             op_NOT_IMPL     }, // 0xD8
    {0, 0, 0, 0, False, TYPE_0, "EXX",               op_exx          }, // 0xD9
    {0, 2, 0, 0, False, TYPE_8, "JP C,%04Xh",        op_jp_cond      }, // 0xDA
@@ -1499,7 +1669,7 @@ InstrType main_instructions[256] = {
    {0, 2, 0,-2, True,  TYPE_8, "CALL C,%04Xh",      op_NOT_IMPL     }, // 0xDC
    UNDEFINED,                                                          // 0xDD
    {0, 1, 0, 0, False, TYPE_8, "SBC A,%02Xh",       op_alu          }, // 0xDE
-   {0, 0, 0,-2, False, TYPE_0, "RST 18h",           op_NOT_IMPL     }, // 0xDF
+   {0, 0, 0,-2, False, TYPE_0, "RST 18h",           op_rst          }, // 0xDF
 
    {0, 0, 2, 0, True,  TYPE_0, "RET PO",            op_NOT_IMPL     }, // 0xE0
    {0, 0, 2, 0, False, TYPE_0, "POP HL",            op_NOT_IMPL     }, // 0xE1
@@ -1508,7 +1678,7 @@ InstrType main_instructions[256] = {
    {0, 2, 0,-2, True,  TYPE_8, "CALL PO,%04Xh",     op_NOT_IMPL     }, // 0xE4
    {0, 0, 0,-2, False, TYPE_0, "PUSH HL",           op_NOT_IMPL     }, // 0xE5
    {0, 1, 0, 0, False, TYPE_8, "AND %02Xh",         op_alu          }, // 0xE6
-   {0, 0, 0,-2, False, TYPE_0, "RST 20h",           op_NOT_IMPL     }, // 0xE7
+   {0, 0, 0,-2, False, TYPE_0, "RST 20h",           op_rst          }, // 0xE7
    {0, 0, 2, 0, True,  TYPE_0, "RET PE",            op_NOT_IMPL     }, // 0xE8
    {0, 0, 0, 0, False, TYPE_0, "JP (HL)",           op_jp_hl        }, // 0xE9
    {0, 2, 0, 0, False, TYPE_8, "JP PE,%04Xh",       op_jp_cond      }, // 0xEA
@@ -1516,7 +1686,7 @@ InstrType main_instructions[256] = {
    {0, 2, 0,-2, True,  TYPE_8, "CALL PE,%04Xh",     op_NOT_IMPL     }, // 0xEC
    UNDEFINED,                                                          // 0xED
    {0, 1, 0, 0, False, TYPE_8, "XOR %02Xh",         op_alu          }, // 0xEE
-   {0, 0, 0,-2, False, TYPE_0, "RST 28h",           op_NOT_IMPL     }, // 0xEF
+   {0, 0, 0,-2, False, TYPE_0, "RST 28h",           op_rst          }, // 0xEF
 
    {0, 0, 2, 0, True,  TYPE_0, "RET P",             op_NOT_IMPL     }, // 0xF0
    {0, 0, 2, 0, False, TYPE_0, "POP AF",            op_NOT_IMPL     }, // 0xF1
@@ -1525,7 +1695,7 @@ InstrType main_instructions[256] = {
    {0, 2, 0,-2, True,  TYPE_8, "CALL P,%04Xh",      op_NOT_IMPL     }, // 0xF4
    {0, 0, 0,-2, False, TYPE_0, "PUSH AF",           op_NOT_IMPL     }, // 0xF5
    {0, 1, 0, 0, False, TYPE_8, "OR %02Xh",          op_alu          }, // 0xF6
-   {0, 0, 0,-2, False, TYPE_0, "RST 30h",           op_NOT_IMPL     }, // 0xF7
+   {0, 0, 0,-2, False, TYPE_0, "RST 30h",           op_rst          }, // 0xF7
    {0, 0, 2, 0, True,  TYPE_0, "RET M",             op_NOT_IMPL     }, // 0xF8
    {0, 0, 0, 0, False, TYPE_0, "LD SP,HL",          op_NOT_IMPL     }, // 0xF9
    {0, 2, 0, 0, False, TYPE_8, "JP M,%04Xh",        op_jp_cond      }, // 0xFA
@@ -1533,7 +1703,7 @@ InstrType main_instructions[256] = {
    {0, 2, 0,-2, True,  TYPE_8, "CALL M,%04Xh",      op_NOT_IMPL     }, // 0xFC
    UNDEFINED,                                                          // 0xFD
    {0, 1, 0, 0, False, TYPE_8, "CP %02Xh",          op_alu          }, // 0xFE
-   {0, 0, 0,-2, False, TYPE_0, "RST 38h",           op_NOT_IMPL     }  // 0xFF
+   {0, 0, 0,-2, False, TYPE_0, "RST 38h",           op_rst          }  // 0xFF
 };
 
 // Instructions with ED prefix
@@ -1607,7 +1777,7 @@ InstrType extended_instructions[256] = {
    UNDEFINED,                                                          // 0x3F
 
    {0, 0, 1, 0, False, TYPE_0, "IN B,(C)",          op_NOT_IMPL     }, // 0x40
-   {0, 0, 0, 1, False, TYPE_0, "OUT (C),B",         op_NOT_IMPL     }, // 0x41
+   {0, 0, 0, 1, False, TYPE_0, "OUT (C),B",         op_out_c_r      }, // 0x41
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,BC",         op_NOT_IMPL     }, // 0x42
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),BC",     op_store_mem16  }, // 0x43
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x44
@@ -1615,7 +1785,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "IM 0",              op_NOT_IMPL     }, // 0x46
    {0, 0, 0, 0, False, TYPE_0, "LD I,A",            op_NOT_IMPL     }, // 0x47
    {0, 0, 1, 0, False, TYPE_0, "IN C,(C)",          op_NOT_IMPL     }, // 0x48
-   {0, 0, 0, 1, False, TYPE_0, "OUT (C),C",         op_NOT_IMPL     }, // 0x49
+   {0, 0, 0, 1, False, TYPE_0, "OUT (C),C",         op_out_c_r      }, // 0x49
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,BC",         op_NOT_IMPL     }, // 0x4A
    {0, 2, 2, 0, False, TYPE_8, "LD BC,(%04Xh)",     op_load_mem16   }, // 0x4B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x4C
@@ -1624,7 +1794,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "LD R,A",            op_NOT_IMPL     }, // 0x4F
 
    {0, 0, 1, 0, False, TYPE_0, "IN D,(C)",          op_NOT_IMPL     }, // 0x50
-   {0, 0, 0, 1, False, TYPE_0, "OUT (C),D",         op_NOT_IMPL     }, // 0x51
+   {0, 0, 0, 1, False, TYPE_0, "OUT (C),D",         op_out_c_r      }, // 0x51
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,DE",         op_NOT_IMPL     }, // 0x52
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),DE",     op_store_mem16  }, // 0x53
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x54
@@ -1632,7 +1802,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "IM 1",              op_NOT_IMPL     }, // 0x56
    {0, 0, 0, 0, False, TYPE_0, "LD A,I",            op_NOT_IMPL     }, // 0x57
    {0, 0, 1, 0, False, TYPE_0, "IN E,(C)",          op_NOT_IMPL     }, // 0x58
-   {0, 0, 0, 1, False, TYPE_0, "OUT (C),E",         op_NOT_IMPL     }, // 0x59
+   {0, 0, 0, 1, False, TYPE_0, "OUT (C),E",         op_out_c_r      }, // 0x59
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,DE",         op_NOT_IMPL     }, // 0x5A
    {0, 2, 2, 0, False, TYPE_8, "LD DE,(%04Xh)",     op_load_mem16   }, // 0x5B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x5C
@@ -1641,7 +1811,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "LD A,R",            op_NOT_IMPL     }, // 0x5F
 
    {0, 0, 1, 0, False, TYPE_0, "IN H,(C)",          op_NOT_IMPL     }, // 0x60
-   {0, 0, 0, 1, False, TYPE_0, "OUT (C),H",         op_NOT_IMPL     }, // 0x61
+   {0, 0, 0, 1, False, TYPE_0, "OUT (C),H",         op_out_c_r      }, // 0x61
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,HL",         op_NOT_IMPL     }, // 0x62
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),HL",     op_store_mem16  }, // 0x63
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x64
@@ -1649,7 +1819,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "IM 0",              op_NOT_IMPL     }, // 0x66
    {0, 0, 1, 1, False, TYPE_0, "RRD",               op_NOT_IMPL     }, // 0x67
    {0, 0, 1, 0, False, TYPE_0, "IN L,(C)",          op_NOT_IMPL     }, // 0x68
-   {0, 0, 0, 1, False, TYPE_0, "OUT (C),L",         op_NOT_IMPL     }, // 0x69
+   {0, 0, 0, 1, False, TYPE_0, "OUT (C),L",         op_out_c_r      }, // 0x69
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,HL",         op_NOT_IMPL     }, // 0x6A
    {0, 2, 2, 0, False, TYPE_8, "LD HL,(%04Xh)",     op_load_mem16   }, // 0x6B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x6C
@@ -1658,7 +1828,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 1, 1, False, TYPE_0, "RLD",               op_NOT_IMPL     }, // 0x6F
 
    {0, 0, 1, 0, False, TYPE_0, "IN (C)",            op_NOT_IMPL     }, // 0x70
-   {0, 0, 0, 1, False, TYPE_0, "OUT (C),0",         op_NOT_IMPL     }, // 0x71
+   {0, 0, 0, 1, False, TYPE_0, "OUT (C),0",         op_out_c_r      }, // 0x71
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,SP",         op_NOT_IMPL     }, // 0x72
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),SP",     op_store_mem16  }, // 0x73
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x74
@@ -1666,7 +1836,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "IM 1",              op_NOT_IMPL     }, // 0x76
    UNDEFINED,                                                          // 0x77
    {0, 0, 1, 0, False, TYPE_0, "IN A,(C)",          op_NOT_IMPL     }, // 0x78
-   {0, 0, 0, 1, False, TYPE_0, "OUT (C),A",         op_NOT_IMPL     }, // 0x79
+   {0, 0, 0, 1, False, TYPE_0, "OUT (C),A",         op_out_c_r      }, // 0x79
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,SP",         op_NOT_IMPL     }, // 0x7A
    {0, 2, 2, 0, False, TYPE_8, "LD SP,(%04Xh)",     op_load_mem16   }, // 0x7B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x7C
@@ -1708,35 +1878,35 @@ InstrType extended_instructions[256] = {
    UNDEFINED,                                                          // 0x9E
    UNDEFINED,                                                          // 0x9F
 
-   {0, 0, 1, 1, False, TYPE_0, "LDI",               op_NOT_IMPL     }, // 0xA0
+   {0, 0, 1, 1, False, TYPE_0, "LDI",               op_ldd_ldi      }, // 0xA0
    {0, 0, 1, 0, False, TYPE_0, "CPI",               op_NOT_IMPL     }, // 0xA1
    {0, 0, 1, 1, False, TYPE_0, "INI",               op_NOT_IMPL     }, // 0xA2
-   {0, 0, 1, 1, False, TYPE_0, "OUTI",              op_NOT_IMPL     }, // 0xA3
+   {0, 0, 1, 1, False, TYPE_0, "OUTI",              op_outi         }, // 0xA3
    UNDEFINED,                                                          // 0xA4
    UNDEFINED,                                                          // 0xA5
    UNDEFINED,                                                          // 0xA6
    UNDEFINED,                                                          // 0xA7
-   {0, 0, 1, 1, False, TYPE_0, "LDD",               op_NOT_IMPL     }, // 0xA8
+   {0, 0, 1, 1, False, TYPE_0, "LDD",               op_ldd_ldi      }, // 0xA8
    {0, 0, 1, 0, False, TYPE_0, "CPD",               op_NOT_IMPL     }, // 0xA9
    {0, 0, 1, 1, False, TYPE_0, "IND",               op_NOT_IMPL     }, // 0xAA
-   {0, 0, 1, 1, False, TYPE_0, "OUTD",              op_NOT_IMPL     }, // 0xAB
+   {0, 0, 1, 1, False, TYPE_0, "OUTD",              op_outd         }, // 0xAB
    UNDEFINED,                                                          // 0xAC
    UNDEFINED,                                                          // 0xAD
    UNDEFINED,                                                          // 0xAE
    UNDEFINED,                                                          // 0xAF
 
-   {0, 0, 1, 1, False, TYPE_0, "LDIR",              op_NOT_IMPL     }, // 0xB0
+   {0, 0, 1, 1, False, TYPE_0, "LDIR",              op_ldd_ldi      }, // 0xB0
    {0, 0, 1, 0, False, TYPE_0, "CPIR",              op_NOT_IMPL     }, // 0xB1
    {0, 0, 1, 1, False, TYPE_0, "INIR",              op_NOT_IMPL     }, // 0xB2
-   {0, 0, 1, 1, False, TYPE_0, "OTIR",              op_NOT_IMPL     }, // 0xB3
+   {0, 0, 1, 1, False, TYPE_0, "OTIR",              op_outi         }, // 0xB3
    UNDEFINED,                                                          // 0xB4
    UNDEFINED,                                                          // 0xB5
    UNDEFINED,                                                          // 0xB6
    UNDEFINED,                                                          // 0xB7
-   {0, 0, 1, 1, False, TYPE_0, "LDDR",              op_NOT_IMPL     }, // 0xB8
+   {0, 0, 1, 1, False, TYPE_0, "LDDR",              op_ldd_ldi      }, // 0xB8
    {0, 0, 1, 0, False, TYPE_0, "CPDR",              op_NOT_IMPL     }, // 0xB9
    {0, 0, 1, 1, False, TYPE_0, "INDR",              op_NOT_IMPL     }, // 0xBA
-   {0, 0, 1, 1, False, TYPE_0, "OTDR",              op_NOT_IMPL     }, // 0xBB
+   {0, 0, 1, 1, False, TYPE_0, "OTDR",              op_outd         }, // 0xBB
    UNDEFINED,                                                          // 0xBC
    UNDEFINED,                                                          // 0xBD
    UNDEFINED,                                                          // 0xBE

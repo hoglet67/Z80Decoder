@@ -505,9 +505,19 @@ static void op_jp_cond(InstrType *instr) {
 }
 
 static void op_alu(InstrType *instr) {
+   int type    = (opcode >> 6) & 3;
    int alu_op  = (opcode >> 3) & 7;
-   int reg_id  = opcode & 7;
-   int operand = *reg_ptr[reg_id];
+   int operand;
+   if (type == 2) {
+      // alu[y] r[z]
+      operand = *reg_ptr[opcode & 7];
+   } else if (type == 3 && (opcode & 7) == 6) {
+      // alu[y] n
+      operand = arg_imm;
+   } else {
+      printf("opcode table error for %02x\n", opcode);
+      return;
+   }
    int cbits;
    int result;
    int cin = flag_c;
@@ -1440,7 +1450,7 @@ InstrType main_instructions[256] = {
    {0, 2, 0, 0, False, TYPE_8, "JP %04Xh",          op_jp           }, // 0xC3
    {0, 2, 0,-2, True,  TYPE_8, "CALL NZ,%04Xh",     op_jp_cond      }, // 0xC4
    {0, 0, 0,-2, False, TYPE_0, "PUSH BC",           op_NOT_IMPL     }, // 0xC5
-   {0, 1, 0, 0, False, TYPE_8, "ADD A,%02Xh",       op_NOT_IMPL     }, // 0xC6
+   {0, 1, 0, 0, False, TYPE_8, "ADD A,%02Xh",       op_alu          }, // 0xC6
    {0, 0, 0,-2, False, TYPE_0, "RST 00h",           op_NOT_IMPL     }, // 0xC7
    {0, 0, 2, 0, True,  TYPE_0, "RET Z",             op_NOT_IMPL     }, // 0xC8
    {0, 0, 2, 0, False, TYPE_0, "RET",               op_NOT_IMPL     }, // 0xC9
@@ -1448,7 +1458,7 @@ InstrType main_instructions[256] = {
    UNDEFINED,                                                          // 0xCB
    {0, 2, 0,-2, True,  TYPE_8, "CALL Z,%04Xh",      op_NOT_IMPL     }, // 0xCC
    {0, 2, 0,-2, False, TYPE_8, "CALL %04Xh",        op_NOT_IMPL     }, // 0xCD
-   {0, 1, 0, 0, False, TYPE_8, "ADC A,%02Xh",       op_NOT_IMPL     }, // 0xCE
+   {0, 1, 0, 0, False, TYPE_8, "ADC A,%02Xh",       op_alu          }, // 0xCE
    {0, 0, 0,-2, False, TYPE_0, "RST 08h",           op_NOT_IMPL     }, // 0xCF
 
    {0, 0, 2, 0, True,  TYPE_0, "RET NC",            op_NOT_IMPL     }, // 0xD0
@@ -1457,7 +1467,7 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 1, False, TYPE_8, "OUT (%02Xh),A",     op_NOT_IMPL     }, // 0xD3
    {0, 2, 0,-2, True,  TYPE_8, "CALL NC,%04Xh",     op_NOT_IMPL     }, // 0xD4
    {0, 0, 0,-2, False, TYPE_0, "PUSH DE",           op_NOT_IMPL     }, // 0xD5
-   {0, 1, 0, 0, False, TYPE_8, "SUB %02Xh",         op_NOT_IMPL     }, // 0xD6
+   {0, 1, 0, 0, False, TYPE_8, "SUB %02Xh",         op_alu          }, // 0xD6
    {0, 0, 0,-2, False, TYPE_0, "RST 10h",           op_NOT_IMPL     }, // 0xD7
    {0, 0, 2, 0, True,  TYPE_0, "RET C",             op_NOT_IMPL     }, // 0xD8
    {0, 0, 0, 0, False, TYPE_0, "EXX",               op_exx          }, // 0xD9
@@ -1465,7 +1475,7 @@ InstrType main_instructions[256] = {
    {0, 1, 1, 0, False, TYPE_8, "IN A,(%02Xh)",      op_NOT_IMPL     }, // 0xDB
    {0, 2, 0,-2, True,  TYPE_8, "CALL C,%04Xh",      op_NOT_IMPL     }, // 0xDC
    UNDEFINED,                                                          // 0xDD
-   {0, 1, 0, 0, False, TYPE_8, "SBC A,%02Xh",       op_NOT_IMPL     }, // 0xDE
+   {0, 1, 0, 0, False, TYPE_8, "SBC A,%02Xh",       op_alu          }, // 0xDE
    {0, 0, 0,-2, False, TYPE_0, "RST 18h",           op_NOT_IMPL     }, // 0xDF
 
    {0, 0, 2, 0, True,  TYPE_0, "RET PO",            op_NOT_IMPL     }, // 0xE0
@@ -1474,7 +1484,7 @@ InstrType main_instructions[256] = {
    {0, 0, 2,-2, False, TYPE_0, "EX (SP),HL",        op_ex_tos_hl    }, // 0xE3
    {0, 2, 0,-2, True,  TYPE_8, "CALL PO,%04Xh",     op_NOT_IMPL     }, // 0xE4
    {0, 0, 0,-2, False, TYPE_0, "PUSH HL",           op_NOT_IMPL     }, // 0xE5
-   {0, 1, 0, 0, False, TYPE_8, "AND %02Xh",         op_NOT_IMPL     }, // 0xE6
+   {0, 1, 0, 0, False, TYPE_8, "AND %02Xh",         op_alu          }, // 0xE6
    {0, 0, 0,-2, False, TYPE_0, "RST 20h",           op_NOT_IMPL     }, // 0xE7
    {0, 0, 2, 0, True,  TYPE_0, "RET PE",            op_NOT_IMPL     }, // 0xE8
    {0, 0, 0, 0, False, TYPE_0, "JP (HL)",           op_jp_hl        }, // 0xE9
@@ -1482,7 +1492,7 @@ InstrType main_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "EX DE,HL",          op_ex_de_hl     }, // 0xEB
    {0, 2, 0,-2, True,  TYPE_8, "CALL PE,%04Xh",     op_NOT_IMPL     }, // 0xEC
    UNDEFINED,                                                          // 0xED
-   {0, 1, 0, 0, False, TYPE_8, "XOR %02Xh",         op_NOT_IMPL     }, // 0xEE
+   {0, 1, 0, 0, False, TYPE_8, "XOR %02Xh",         op_alu          }, // 0xEE
    {0, 0, 0,-2, False, TYPE_0, "RST 28h",           op_NOT_IMPL     }, // 0xEF
 
    {0, 0, 2, 0, True,  TYPE_0, "RET P",             op_NOT_IMPL     }, // 0xF0
@@ -1491,7 +1501,7 @@ InstrType main_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "DI",                op_di           }, // 0xF3
    {0, 2, 0,-2, True,  TYPE_8, "CALL P,%04Xh",      op_NOT_IMPL     }, // 0xF4
    {0, 0, 0,-2, False, TYPE_0, "PUSH AF",           op_NOT_IMPL     }, // 0xF5
-   {0, 1, 0, 0, False, TYPE_8, "OR %02Xh",          op_NOT_IMPL     }, // 0xF6
+   {0, 1, 0, 0, False, TYPE_8, "OR %02Xh",          op_alu          }, // 0xF6
    {0, 0, 0,-2, False, TYPE_0, "RST 30h",           op_NOT_IMPL     }, // 0xF7
    {0, 0, 2, 0, True,  TYPE_0, "RET M",             op_NOT_IMPL     }, // 0xF8
    {0, 0, 0, 0, False, TYPE_0, "LD SP,HL",          op_NOT_IMPL     }, // 0xF9
@@ -1499,7 +1509,7 @@ InstrType main_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "EI",                op_ei           }, // 0xFB
    {0, 2, 0,-2, True,  TYPE_8, "CALL M,%04Xh",      op_NOT_IMPL     }, // 0xFC
    UNDEFINED,                                                          // 0xFD
-   {0, 1, 0, 0, False, TYPE_8, "CP %02Xh",          op_NOT_IMPL     }, // 0xFE
+   {0, 1, 0, 0, False, TYPE_8, "CP %02Xh",          op_alu          }, // 0xFE
    {0, 0, 0,-2, False, TYPE_0, "RST 38h",           op_NOT_IMPL     }  // 0xFF
 };
 

@@ -236,6 +236,7 @@ int failflag           = 0;
 int instr_len          = 0;
 InstrType *instruction = NULL;
 
+static int instr_bytes[MAX_INSTR_LEN];
 static AnnType ann_dasm     = ANN_NONE;
 static const char *mnemonic = NULL;
 static FormatType format    = TYPE_0;
@@ -250,11 +251,8 @@ static int nmi_pending = 0;
 // to be re-presented
 #define BIT_UNPROCESSED 1
 
-// Indicates the end of the opcode bytes
-#define BIT_END_OPCODE 2
-
 // Indicates the end of an instruction execution
-#define BIT_END_INSTR 4
+#define BIT_INSTRUCTION 4
 
 int decode_state(Z80CycleType cycle, int data) {
 
@@ -289,6 +287,7 @@ int decode_state(Z80CycleType cycle, int data) {
       prefix      = 0;
       instruction = NULL;
       state       = S_OPCODE;
+      instr_len   = 0;
       // And fall through to S_OPCODE
 
    case S_OPCODE:
@@ -319,11 +318,13 @@ int decode_state(Z80CycleType cycle, int data) {
          // Process any first prefix byte
          if (data == 0xCB || data == 0xED || data == 0xDD || data == 0xFD) {
             prefix = data;
+            instr_bytes[instr_len++] = data;
             break;
          }
       } else if (data == 0xCB && (prefix == 0xDD || prefix == 0xFD)) {
          // Process any second prefix byte, and then then the pre-displacement
          prefix = (prefix << 8) | data;
+         instr_bytes[instr_len++] = data;
          state = S_PREDIS;
          break;
       }
@@ -331,6 +332,7 @@ int decode_state(Z80CycleType cycle, int data) {
       table = table_by_prefix(prefix);
       arg_reg = reg_by_prefix(prefix);
       opcode = data;
+      instr_bytes[instr_len++] = data;
       instruction = &table[opcode];
       if (instruction->want_dis < 0) {
          mnemonic = "Invalid instruction";
@@ -357,14 +359,13 @@ int decode_state(Z80CycleType cycle, int data) {
          state = S_IMM1;
       } else {
          ann_dasm = ANN_INSTR;
-         ret |= BIT_END_OPCODE;
          if (want_read > 0) {
             state = S_ROP1;
          } else if (want_write > 0) {
             state = S_WOP1;
          } else {
             state = S_IDLE;
-            ret |= BIT_END_INSTR;
+            ret |= BIT_INSTRUCTION;
          }
       }
       break;
@@ -377,6 +378,7 @@ int decode_state(Z80CycleType cycle, int data) {
          break;
       }
       arg_dis = (char) data; // treat as signed
+      instr_bytes[instr_len++] = data;
       state = S_OPCODE;
       break;
 
@@ -388,18 +390,18 @@ int decode_state(Z80CycleType cycle, int data) {
          break;
       }
       arg_dis = (char) data;
+      instr_bytes[instr_len++] = data;
       if (want_imm > 0) {
          state = S_IMM1;
       } else {
          ann_dasm = ANN_INSTR;
-         ret |= BIT_END_OPCODE;
          if (want_read > 0) {
             state = S_ROP1;
          } else if (want_write > 0) {
             state = S_WOP1;
          } else {
             state = S_IDLE;
-            ret |= BIT_END_INSTR;
+            ret |= BIT_INSTRUCTION;
          }
       }
       break;
@@ -412,18 +414,18 @@ int decode_state(Z80CycleType cycle, int data) {
          break;
       }
       arg_imm = data;
+      instr_bytes[instr_len++] = data;
       if (want_imm > 1) {
          state = S_IMM2;
       } else {
          ann_dasm = ANN_INSTR;
-         ret |= BIT_END_OPCODE;
          if (want_read > 0) {
             state = S_ROP1;
          } else if (want_write > 0) {
             state = S_WOP1;
          } else {
             state = S_IDLE;
-            ret |= BIT_END_INSTR;
+            ret |= BIT_INSTRUCTION;
          }
       }
       break;
@@ -436,15 +438,15 @@ int decode_state(Z80CycleType cycle, int data) {
          break;
       }
       arg_imm |= data << 8;
+      instr_bytes[instr_len++] = data;
       ann_dasm = ANN_INSTR;
-      ret |= BIT_END_OPCODE;
       if (want_read > 0) {
          state = S_ROP1;
       } else if (want_write > 0) {
          state = S_WOP1;
       } else {
          state = S_IDLE;
-         ret |= BIT_END_INSTR;
+         ret |= BIT_INSTRUCTION;
       }
       break;
 
@@ -454,7 +456,7 @@ int decode_state(Z80CycleType cycle, int data) {
       // will be the fetch of the next instruction
       if (conditional && (cycle == C_FETCH || cycle == C_INTACK)) {
          state = S_IDLE;
-         ret |= BIT_END_INSTR | BIT_UNPROCESSED;
+         ret |= BIT_INSTRUCTION | BIT_UNPROCESSED;
          break;
       }
       if (cycle != C_MEMRD && cycle != C_IORD) {
@@ -473,7 +475,7 @@ int decode_state(Z80CycleType cycle, int data) {
          state = S_WOP1;
       } else {
          state = S_IDLE;
-         ret |= BIT_END_INSTR;
+         ret |= BIT_INSTRUCTION;
       }
       break;
 
@@ -490,7 +492,7 @@ int decode_state(Z80CycleType cycle, int data) {
          state = S_WOP1;
       } else {
          state = S_IDLE;
-         ret |= BIT_END_INSTR;
+         ret |= BIT_INSTRUCTION;
       }
       break;
 
@@ -500,7 +502,7 @@ int decode_state(Z80CycleType cycle, int data) {
       // will be the fetch of the next instruction
       if (conditional && (cycle == C_FETCH || cycle == C_INTACK)) {
          state = S_IDLE;
-         ret |= BIT_END_INSTR | BIT_UNPROCESSED;
+         ret |= BIT_INSTRUCTION | BIT_UNPROCESSED;
          break;
       }
       if (cycle != C_MEMWR && cycle != C_IOWR) {
@@ -515,7 +517,7 @@ int decode_state(Z80CycleType cycle, int data) {
       } else {
          ann_dasm = ANN_WOP1;
          state = S_IDLE;
-         ret |= BIT_END_INSTR;
+         ret |= BIT_INSTRUCTION;
       }
       break;
 
@@ -533,7 +535,7 @@ int decode_state(Z80CycleType cycle, int data) {
       }
       ann_dasm = ANN_WOP2;
       state = S_IDLE;
-      ret |= BIT_END_INSTR;
+      ret |= BIT_INSTRUCTION;
       break;
    }
 
@@ -553,8 +555,6 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
    static int prev_nmi            = 0;
    static int prev_phi            = 0;
    static int instr_cycles        = 0;
-   static int instr_bytes[MAX_INSTR_LEN];
-   static int opcode_end          = 0;
 
    int ret;
    int cycle_end;
@@ -637,18 +637,13 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
 
          ret = decode_state(prev_cycle, prev_data);
 
-         if (!opcode_end) {
-            instr_bytes[instr_len++] = prev_data;
-            opcode_end = ret & BIT_END_OPCODE;
-         }
-
          // Handle Warnings
          if (ann_dasm == ANN_WARN) {
             printf("WARNING: %s\n", mnemonic);
             ann_dasm = ANN_NONE;
          }
 
-         if (ret & BIT_END_INSTR) {
+         if (ret & BIT_INSTRUCTION) {
             int count = 0;
             colon = 0;
             // We have everything available to process a complete instruction
@@ -756,9 +751,7 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
             }
 
             // Reset the instruction variables
-            instr_len = 0;
             instr_cycles = 0;
-            opcode_end = 0;
 
             // Look for a falling edge of NMI
             // TODO: this should be done at the end of every machine cycle

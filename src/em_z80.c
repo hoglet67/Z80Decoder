@@ -525,6 +525,8 @@ static void op_djnz(InstrType *instr) {
 }
 
 static void op_rst(InstrType *instr) {
+   // The stacked PC is the next instuction
+   update_pc();
    if (reg_pc >= 0 && reg_pc != arg_write) {
       failflag = 1;
    }

@@ -503,83 +503,7 @@ static void op_pop(InstrType *instr) {
 // Emulated instructions - Control Flow
 // ===================================================================
 
-static void op_call(InstrType *instr) {
-   update_pc();
-   // The stacked PC is the next instuction
-   if (reg_pc >= 0 && reg_pc != arg_write) {
-      failflag = 1;
-   }
-   reg_pc = arg_imm;
-   if (reg_sp >= 0) {
-      reg_sp = (reg_sp - 2) & 0xffff;
-   }
-}
-
-static void op_ret(InstrType *instr) {
-   reg_pc = arg_read;
-   if (reg_sp >= 0) {
-      reg_sp = (reg_sp + 2) & 0xffff;
-   }
-}
-
-static void op_jr(InstrType *instr) {
-   int cc = (opcode >> 3) & 7;
-   // default to unknown
-   int taken = -1;
-   switch (cc) {
-   case 4:
-      // NZ
-      if (flag_z >= 0) {
-         taken = !flag_z;
-      }
-      break;
-   case 5:
-      // Z
-      if (flag_z >= 0) {
-         taken = flag_z;
-      }
-      break;
-   case 6:
-      // NC
-      if (flag_c >= 0) {
-         taken = !flag_c;
-      }
-      break;
-   case 7:
-      // C
-      if (flag_c >= 0) {
-         taken = flag_c;
-      }
-      break;
-   default:
-      // unconditional
-      taken = 1;
-   }
-   // TODO: could infer more state from number of cycles
-   if (taken >= 0 && reg_pc >= 0) {
-      update_pc();
-      if (taken) {
-         reg_pc = (reg_pc + arg_dis) & 0xffff;
-      }
-   } else {
-      reg_pc = -1;
-   }
-}
-
-static void op_jp(InstrType *instr) {
-   reg_pc = arg_imm;
-}
-
-static void op_jp_hl(InstrType *instr) {
-   reg_pc = read_reg_pair1(ID_RR_HL);
-}
-
-static void op_jp_idx(InstrType *instr) {
-   reg_pc = IS_IY ? reg_iy : reg_ix;
-}
-
-static void op_jp_cond(InstrType *instr) {
-   int cc = (opcode >> 3) & 7;
+static int test_cc(int cc) {
    // default to unknown
    int taken = -1;
    switch (cc) {
@@ -632,6 +556,87 @@ static void op_jp_cond(InstrType *instr) {
       }
       break;
    }
+   return taken;
+}
+
+static void op_call(InstrType *instr) {
+   update_pc();
+   // The stacked PC is the next instuction
+   if (reg_pc >= 0 && reg_pc != arg_write) {
+      failflag = 1;
+   }
+   reg_pc = arg_imm;
+   if (reg_sp >= 0) {
+      reg_sp = (reg_sp - 2) & 0xffff;
+   }
+}
+
+static void op_call_cond(InstrType *instr) {
+   int cc = (opcode >> 3) & 7;
+   int taken = test_cc(cc);
+   if (taken >= 0) {
+      if (taken) {
+         op_call(instr);
+      } else {
+         update_pc();
+      }
+   } else {
+      reg_pc = -1;
+      reg_sp = -1;
+   }
+}
+
+static void op_ret(InstrType *instr) {
+   reg_pc = arg_read;
+   if (reg_sp >= 0) {
+      reg_sp = (reg_sp + 2) & 0xffff;
+   }
+}
+
+static void op_ret_cond(InstrType *instr) {
+   int cc = (opcode >> 3) & 7;
+   int taken = test_cc(cc);
+   if (taken >= 0) {
+      if (taken) {
+         op_ret(instr);
+      } else {
+         update_pc();
+      }
+   } else {
+      reg_pc = -1;
+      reg_sp = -1;
+   }
+}
+
+static void op_jr(InstrType *instr) {
+   int cc = (opcode >> 3) & 7;
+   int taken = cc < 4 ? 1 : test_cc(cc - 4);
+   // TODO: could infer more state from number of cycles
+   if (taken >= 0 && reg_pc >= 0) {
+      update_pc();
+      if (taken) {
+         reg_pc = (reg_pc + arg_dis) & 0xffff;
+      }
+   } else {
+      reg_pc = -1;
+   }
+}
+
+static void op_jp(InstrType *instr) {
+   reg_pc = arg_imm;
+}
+
+static void op_jp_hl(InstrType *instr) {
+   reg_pc = read_reg_pair1(ID_RR_HL);
+}
+
+static void op_jp_idx(InstrType *instr) {
+   reg_pc = IS_IY ? reg_iy : reg_ix;
+}
+
+static void op_jp_cond(InstrType *instr) {
+   int cc = (opcode >> 3) & 7;
+   int taken = test_cc(cc);
    // TODO: could infer more state from number of cycles
    if (taken >= 0) {
       if (taken) {
@@ -1817,70 +1822,70 @@ InstrType main_instructions[256] = {
    {0, 0, 1, 0, False, TYPE_0, "CP (HL)",           op_alu          }, // 0xBE
    {0, 0, 0, 0, False, TYPE_0, "CP A",              op_alu          }, // 0xBF
 
-   {0, 0, 2, 0, True,  TYPE_0, "RET NZ",            op_NOT_IMPL     }, // 0xC0
+   {0, 0, 2, 0, True,  TYPE_0, "RET NZ",            op_ret_cond     }, // 0xC0
    {0, 0, 2, 0, False, TYPE_0, "POP BC",            op_pop          }, // 0xC1
    {0, 2, 0, 0, False, TYPE_8, "JP NZ,%04Xh",       op_jp_cond      }, // 0xC2
    {0, 2, 0, 0, False, TYPE_8, "JP %04Xh",          op_jp           }, // 0xC3
-   {0, 2, 0,-2, True,  TYPE_8, "CALL NZ,%04Xh",     op_jp_cond      }, // 0xC4
+   {0, 2, 0,-2, True,  TYPE_8, "CALL NZ,%04Xh",     op_call_cond    }, // 0xC4
    {0, 0, 0,-2, False, TYPE_0, "PUSH BC",           op_push         }, // 0xC5
    {0, 1, 0, 0, False, TYPE_8, "ADD A,%02Xh",       op_alu          }, // 0xC6
    {0, 0, 0,-2, False, TYPE_0, "RST 00h",           op_rst          }, // 0xC7
-   {0, 0, 2, 0, True,  TYPE_0, "RET Z",             op_NOT_IMPL     }, // 0xC8
+   {0, 0, 2, 0, True,  TYPE_0, "RET Z",             op_ret_cond     }, // 0xC8
    {0, 0, 2, 0, False, TYPE_0, "RET",               op_ret          }, // 0xC9
    {0, 2, 0, 0, False, TYPE_8, "JP Z,%04Xh",        op_jp_cond      }, // 0xCA
    UNDEFINED,                                                          // 0xCB
-   {0, 2, 0,-2, True,  TYPE_8, "CALL Z,%04Xh",      op_NOT_IMPL     }, // 0xCC
+   {0, 2, 0,-2, True,  TYPE_8, "CALL Z,%04Xh",      op_call_cond    }, // 0xCC
    {0, 2, 0,-2, False, TYPE_8, "CALL %04Xh",        op_call         }, // 0xCD
    {0, 1, 0, 0, False, TYPE_8, "ADC A,%02Xh",       op_alu          }, // 0xCE
    {0, 0, 0,-2, False, TYPE_0, "RST 08h",           op_rst          }, // 0xCF
 
-   {0, 0, 2, 0, True,  TYPE_0, "RET NC",            op_NOT_IMPL     }, // 0xD0
+   {0, 0, 2, 0, True,  TYPE_0, "RET NC",            op_ret_cond     }, // 0xD0
    {0, 0, 2, 0, False, TYPE_0, "POP DE",            op_pop          }, // 0xD1
    {0, 2, 0, 0, False, TYPE_8, "JP NC,%04Xh",       op_jp_cond      }, // 0xD2
    {0, 1, 0, 1, False, TYPE_8, "OUT (%02Xh),A",     op_out_nn_a     }, // 0xD3
-   {0, 2, 0,-2, True,  TYPE_8, "CALL NC,%04Xh",     op_NOT_IMPL     }, // 0xD4
+   {0, 2, 0,-2, True,  TYPE_8, "CALL NC,%04Xh",     op_call_cond    }, // 0xD4
    {0, 0, 0,-2, False, TYPE_0, "PUSH DE",           op_push         }, // 0xD5
    {0, 1, 0, 0, False, TYPE_8, "SUB %02Xh",         op_alu          }, // 0xD6
    {0, 0, 0,-2, False, TYPE_0, "RST 10h",           op_rst          }, // 0xD7
-   {0, 0, 2, 0, True,  TYPE_0, "RET C",             op_NOT_IMPL     }, // 0xD8
+   {0, 0, 2, 0, True,  TYPE_0, "RET C",             op_ret_cond     }, // 0xD8
    {0, 0, 0, 0, False, TYPE_0, "EXX",               op_exx          }, // 0xD9
    {0, 2, 0, 0, False, TYPE_8, "JP C,%04Xh",        op_jp_cond      }, // 0xDA
    {0, 1, 1, 0, False, TYPE_8, "IN A,(%02Xh)",      op_NOT_IMPL     }, // 0xDB
-   {0, 2, 0,-2, True,  TYPE_8, "CALL C,%04Xh",      op_NOT_IMPL     }, // 0xDC
+   {0, 2, 0,-2, True,  TYPE_8, "CALL C,%04Xh",      op_call_cond    }, // 0xDC
    UNDEFINED,                                                          // 0xDD
    {0, 1, 0, 0, False, TYPE_8, "SBC A,%02Xh",       op_alu          }, // 0xDE
    {0, 0, 0,-2, False, TYPE_0, "RST 18h",           op_rst          }, // 0xDF
 
-   {0, 0, 2, 0, True,  TYPE_0, "RET PO",            op_NOT_IMPL     }, // 0xE0
+   {0, 0, 2, 0, True,  TYPE_0, "RET PO",            op_ret_cond     }, // 0xE0
    {0, 0, 2, 0, False, TYPE_0, "POP HL",            op_pop          }, // 0xE1
    {0, 2, 0, 0, False, TYPE_8, "JP PO,%04Xh",       op_jp_cond      }, // 0xE2
    {0, 0, 2,-2, False, TYPE_0, "EX (SP),HL",        op_ex_tos_hl    }, // 0xE3
-   {0, 2, 0,-2, True,  TYPE_8, "CALL PO,%04Xh",     op_NOT_IMPL     }, // 0xE4
+   {0, 2, 0,-2, True,  TYPE_8, "CALL PO,%04Xh",     op_call_cond    }, // 0xE4
    {0, 0, 0,-2, False, TYPE_0, "PUSH HL",           op_push         }, // 0xE5
    {0, 1, 0, 0, False, TYPE_8, "AND %02Xh",         op_alu          }, // 0xE6
    {0, 0, 0,-2, False, TYPE_0, "RST 20h",           op_rst          }, // 0xE7
-   {0, 0, 2, 0, True,  TYPE_0, "RET PE",            op_NOT_IMPL     }, // 0xE8
+   {0, 0, 2, 0, True,  TYPE_0, "RET PE",            op_ret_cond     }, // 0xE8
    {0, 0, 0, 0, False, TYPE_0, "JP (HL)",           op_jp_hl        }, // 0xE9
    {0, 2, 0, 0, False, TYPE_8, "JP PE,%04Xh",       op_jp_cond      }, // 0xEA
    {0, 0, 0, 0, False, TYPE_0, "EX DE,HL",          op_ex_de_hl     }, // 0xEB
-   {0, 2, 0,-2, True,  TYPE_8, "CALL PE,%04Xh",     op_NOT_IMPL     }, // 0xEC
+   {0, 2, 0,-2, True,  TYPE_8, "CALL PE,%04Xh",     op_call_cond    }, // 0xEC
    UNDEFINED,                                                          // 0xED
    {0, 1, 0, 0, False, TYPE_8, "XOR %02Xh",         op_alu          }, // 0xEE
    {0, 0, 0,-2, False, TYPE_0, "RST 28h",           op_rst          }, // 0xEF
 
-   {0, 0, 2, 0, True,  TYPE_0, "RET P",             op_NOT_IMPL     }, // 0xF0
+   {0, 0, 2, 0, True,  TYPE_0, "RET P",             op_ret_cond     }, // 0xF0
    {0, 0, 2, 0, False, TYPE_0, "POP AF",            op_pop          }, // 0xF1
    {0, 2, 0, 0, False, TYPE_8, "JP P,%04Xh",        op_jp_cond      }, // 0xF2
    {0, 0, 0, 0, False, TYPE_0, "DI",                op_di           }, // 0xF3
-   {0, 2, 0,-2, True,  TYPE_8, "CALL P,%04Xh",      op_NOT_IMPL     }, // 0xF4
+   {0, 2, 0,-2, True,  TYPE_8, "CALL P,%04Xh",      op_call_cond    }, // 0xF4
    {0, 0, 0,-2, False, TYPE_0, "PUSH AF",           op_push         }, // 0xF5
    {0, 1, 0, 0, False, TYPE_8, "OR %02Xh",          op_alu          }, // 0xF6
    {0, 0, 0,-2, False, TYPE_0, "RST 30h",           op_rst          }, // 0xF7
-   {0, 0, 2, 0, True,  TYPE_0, "RET M",             op_NOT_IMPL     }, // 0xF8
+   {0, 0, 2, 0, True,  TYPE_0, "RET M",             op_ret_cond     }, // 0xF8
    {0, 0, 0, 0, False, TYPE_0, "LD SP,HL",          op_load_sp_hl   }, // 0xF9
    {0, 2, 0, 0, False, TYPE_8, "JP M,%04Xh",        op_jp_cond      }, // 0xFA
    {0, 0, 0, 0, False, TYPE_0, "EI",                op_ei           }, // 0xFB
-   {0, 2, 0,-2, True,  TYPE_8, "CALL M,%04Xh",      op_NOT_IMPL     }, // 0xFC
+   {0, 2, 0,-2, True,  TYPE_8, "CALL M,%04Xh",      op_call_cond    }, // 0xFC
    UNDEFINED,                                                          // 0xFD
    {0, 1, 0, 0, False, TYPE_8, "CP %02Xh",          op_alu          }, // 0xFE
    {0, 0, 0,-2, False, TYPE_0, "RST 38h",           op_rst          }  // 0xFF

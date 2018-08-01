@@ -89,7 +89,8 @@ static int reg_im;
 #define ID_RR_BC 0
 #define ID_RR_DE 1
 #define ID_RR_HL 2
-#define ID_RR_SP 3
+#define ID_RR_SP 3 // For "pair1" functions
+#define ID_RR_AF 3 // For "pair2" functions
 
 int *reg_ptr[] = {
    &reg_b,
@@ -281,7 +282,48 @@ static const unsigned char partab[256] = {
    1,0,0,1,0,1,1,0,0,1,1,0,1,0,0,1,
 };
 
-static void write_reg_pair(int id, int value) {
+static void set_sign_zero(int result) {
+   flag_s  = (result >> 7) & 1;
+   flag_z  = ((result & 0xff) == 0);
+   flag_f5 = (result >> 5) & 1;
+   flag_f3 = (result >> 3) & 1;
+}
+
+static void set_flags_undefined() {
+   flag_s  = -1;
+   flag_z  = -1;
+   flag_f5 = -1;
+   flag_h  = -1;
+   flag_f3 = -1;
+   flag_pv = -1;
+   flag_n  = -1;
+   flag_c  = -1;
+}
+
+static int read_reg_pair1(int id) {
+   switch(id) {
+   case 0:
+      if (reg_b >= 0 && reg_c >= 0) {
+         return (reg_b << 8) | reg_c;
+      }
+      break;
+   case 1:
+      if (reg_d >= 0 && reg_e >= 0) {
+         return (reg_d << 8) | reg_e;
+      }
+      break;
+   case 2:
+      if (reg_h >= 0 && reg_l >= 0) {
+         return (reg_h << 8) | reg_l;
+      }
+      break;
+   case 3:
+      return reg_sp;
+   }
+   return -1;
+}
+
+static void write_reg_pair1(int id, int value) {
    switch(id) {
    case 0:
       if (value >= 0) {
@@ -316,51 +358,81 @@ static void write_reg_pair(int id, int value) {
    }
 }
 
-static int read_reg_pair(int id) {
+static int read_reg_pair2(int id) {
    switch(id) {
    case 0:
       if (reg_b >= 0 && reg_c >= 0) {
          return (reg_b << 8) | reg_c;
-      } else {
-         return -1;
       }
       break;
    case 1:
       if (reg_d >= 0 && reg_e >= 0) {
          return (reg_d << 8) | reg_e;
-      } else {
-         return -1;
       }
+      break;
    case 2:
       if (reg_h >= 0 && reg_l >= 0) {
          return (reg_h << 8) | reg_l;
-      } else {
-         return -1;
       }
+      break;
    case 3:
-      return reg_sp;
+      if (reg_a >= 0 && flag_s >= 0 && flag_z >= 0 && flag_f5 >= 0 && flag_h >= 0 && flag_f3 >= 0 && flag_pv >= 0 && flag_n >= 7 && flag_c >= 0) {
+         return (reg_a << 8) | (flag_s << 7) | (flag_z << 6) | (flag_f5 << 5) | (flag_h << 4) | (flag_f3 << 3) | (flag_pv << 2) | (flag_n << 1) | flag_c;
+      }
+      break;
    }
    return -1;
 }
 
-
-static void set_sign_zero(int result) {
-   flag_s  = (result >> 7) & 1;
-   flag_z  = ((result & 0xff) == 0);
-   flag_f5 = (result >> 5) & 1;
-   flag_f3 = (result >> 3) & 1;
+static void write_reg_pair2(int id, int value) {
+   switch(id) {
+   case 0:
+      if (value >= 0) {
+         reg_b = (value >> 8) & 0xff;
+         reg_c = value & 0xff;
+      } else {
+         reg_b = -1;
+         reg_c = -1;
+      }
+      break;
+   case 1:
+      if (value >= 0) {
+         reg_d = (value >> 8) & 0xff;
+         reg_e = value & 0xff;
+      } else {
+         reg_d = -1;
+         reg_e = -1;
+      }
+      break;
+   case 2:
+      if (value >= 0) {
+         reg_h = (value >> 8) & 0xff;
+         reg_l = value & 0xff;
+      } else {
+         reg_h = -1;
+         reg_l = -1;
+      }
+      break;
+   case 3:
+      if (value >= 0) {
+         reg_a   = (value >> 8) & 0xff;
+         flag_s  = (value >> 7) & 1;
+         flag_z  = (value >> 6) & 1;
+         flag_f5 = (value >> 5) & 1;
+         flag_h  = (value >> 4) & 1;
+         flag_f3 = (value >> 3) & 1;
+         flag_pv = (value >> 2) & 1;
+         flag_n  = (value >> 1) & 1;
+         flag_c  = value        & 1;
+      } else {
+         reg_a = -1;
+         set_flags_undefined();
+      }
+      reg_sp = value;
+      break;
+   }
 }
 
-static void set_flags_undefined() {
-   flag_s  = -1;
-   flag_z  = -1;
-   flag_f5 = -1;
-   flag_h  = -1;
-   flag_f3 = -1;
-   flag_pv = -1;
-   flag_n  = -1;
-   flag_c  = -1;
-}
 static void swap(int *reg1, int *reg2) {
    int tmp;
    tmp = *reg1;
@@ -387,8 +459,63 @@ static void op_nop(InstrType *instr) {
 }
 
 // ===================================================================
+// Emulated instructions - Push/Pop
+// ===================================================================
+
+static void op_push(InstrType *instr) {
+   int reg;
+   if (prefix == 0xDD) {
+      reg = reg_ix;
+   } else if (prefix == 0xFD) {
+      reg = reg_iy;
+   } else {
+      reg = read_reg_pair2((opcode >> 4) & 3);
+   }
+   if (reg >= 0 && reg != arg_write) {
+      failflag = 1;
+   }
+   if (reg_sp >= 0) {
+      reg_sp = (reg_sp - 2) & 0xffff;
+   }
+   update_pc();
+}
+
+static void op_pop(InstrType *instr) {
+   if (prefix == 0xDD) {
+      reg_ix = arg_read;
+   } else if (prefix == 0xFD) {
+      reg_iy = arg_read;
+   } else {
+      write_reg_pair2((opcode >> 4) & 3, arg_read);
+   }
+   if (reg_sp >= 0) {
+      reg_sp = (reg_sp + 2) & 0xffff;
+   }
+   update_pc();
+}
+
+// ===================================================================
 // Emulated instructions - Control Flow
 // ===================================================================
+
+static void op_call(InstrType *instr) {
+   update_pc();
+   // The stacked PC is the next instuction
+   if (reg_pc >= 0 && reg_pc != arg_write) {
+      failflag = 1;
+   }
+   reg_pc = arg_imm;
+   if (reg_sp >= 0) {
+      reg_sp = (reg_sp - 2) & 0xffff;
+   }
+}
+
+static void op_ret(InstrType *instr) {
+   reg_pc = arg_read;
+   if (reg_sp >= 0) {
+      reg_sp = (reg_sp + 2) & 0xffff;
+   }
+}
 
 static void op_jr(InstrType *instr) {
    int cc = (opcode >> 3) & 7;
@@ -439,7 +566,7 @@ static void op_jp(InstrType *instr) {
 }
 
 static void op_jp_hl(InstrType *instr) {
-   reg_pc = read_reg_pair(ID_RR_HL);
+   reg_pc = read_reg_pair1(ID_RR_HL);
 }
 
 static void op_jp_idx(InstrType *instr) {
@@ -662,17 +789,17 @@ static void op_alu(InstrType *instr) {
 
 static void op_add_hl_rr(InstrType *instr) {
    int reg_id = (opcode >> 4) & 3;
-   int op1 = read_reg_pair(ID_RR_HL);
-   int op2 = read_reg_pair(reg_id);
+   int op1 = read_reg_pair1(ID_RR_HL);
+   int op2 = read_reg_pair1(reg_id);
    if (op1 < 0 || op2 < 0) {
-      write_reg_pair(ID_RR_HL, -1);
+      write_reg_pair1(ID_RR_HL, -1);
       set_flags_undefined();;
    } else {
       int result = op1 + op2;
       int cbits = result ^ op1 ^ op2;
       flag_c = (cbits >> 16) & 1;
       flag_h = (cbits >> 12) & 1;
-      write_reg_pair(ID_RR_HL, result & 0xffff);
+      write_reg_pair1(ID_RR_HL, result & 0xffff);
    }
    flag_n = 0;
    update_pc();
@@ -698,11 +825,11 @@ static void op_inc_r(InstrType *instr) {
 
 static void op_inc_rr(InstrType *instr) {
    int reg_id = (opcode >> 4) & 3;
-   int val = read_reg_pair(reg_id);
+   int val = read_reg_pair1(reg_id);
    if (val >= 0) {
-      write_reg_pair(reg_id, (val + 1) & 0xffff);
+      write_reg_pair1(reg_id, (val + 1) & 0xffff);
    } else {
-      write_reg_pair(reg_id, -1);
+      write_reg_pair1(reg_id, -1);
    }
    update_pc();
 }
@@ -762,11 +889,11 @@ static void op_dec_r(InstrType *instr) {
 
 static void op_dec_rr(InstrType *instr) {
    int reg_id = (opcode >> 4) & 3;
-   int val = read_reg_pair(reg_id);
+   int val = read_reg_pair1(reg_id);
    if (val >= 0) {
-      write_reg_pair(reg_id, (val - 1) & 0xffff);
+      write_reg_pair1(reg_id, (val - 1) & 0xffff);
    } else {
-      write_reg_pair(reg_id, -1);
+      write_reg_pair1(reg_id, -1);
    }
    update_pc();
 }
@@ -1033,7 +1160,7 @@ static void op_load_imm8(InstrType *instr) {
 
 static void op_load_imm16(InstrType *instr) {
    int reg_id = (opcode >> 4) & 3;
-   write_reg_pair(reg_id, arg_imm);
+   write_reg_pair1(reg_id, arg_imm);
    update_pc();
 }
 
@@ -1046,7 +1173,7 @@ static void op_load_a(InstrType *instr) {
 
 static void op_load_hl(InstrType *instr) {
    // EA = (nn)
-   write_reg_pair(ID_RR_HL, arg_read);
+   write_reg_pair1(ID_RR_HL, arg_read);
    update_pc();
 }
 
@@ -1061,17 +1188,17 @@ static void op_store_a(InstrType *instr) {
 
 static void op_store_hl(InstrType *instr) {
    // EA = (nn)
-   int hl = read_reg_pair(ID_RR_HL);
+   int hl = read_reg_pair1(ID_RR_HL);
    if (hl >= 0 && hl != arg_write) {
       failflag = 1;
    }
-   write_reg_pair(ID_RR_HL, arg_write);
+   write_reg_pair1(ID_RR_HL, arg_write);
    update_pc();
 }
 
 static void op_load_mem16(InstrType *instr) {
    int reg_id = (opcode >> 4) & 3;
-   write_reg_pair(reg_id, arg_read);
+   write_reg_pair1(reg_id, arg_read);
    update_pc();
 }
 
@@ -1148,19 +1275,19 @@ static void op_out_nn_a(InstrType *instr) {
 
 
 static void block_decrement_rr(int rr) {
-   int value = read_reg_pair(rr);
+   int value = read_reg_pair1(rr);
    if (value >= 0) {
       value = (value - 1) & 0xffff;
    }
-   write_reg_pair(rr, value);
+   write_reg_pair1(rr, value);
 }
 
 static void block_increment_rr(int rr) {
-   int value = read_reg_pair(rr);
+   int value = read_reg_pair1(rr);
    if (value >= 0) {
       value = (value + 1) & 0xffff;
    }
-   write_reg_pair(rr, value);
+   write_reg_pair1(rr, value);
 }
 
 static void block_decrement_bc() {
@@ -1640,28 +1767,28 @@ InstrType main_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "CP A",              op_alu          }, // 0xBF
 
    {0, 0, 2, 0, True,  TYPE_0, "RET NZ",            op_NOT_IMPL     }, // 0xC0
-   {0, 0, 2, 0, False, TYPE_0, "POP BC",            op_NOT_IMPL     }, // 0xC1
+   {0, 0, 2, 0, False, TYPE_0, "POP BC",            op_pop          }, // 0xC1
    {0, 2, 0, 0, False, TYPE_8, "JP NZ,%04Xh",       op_jp_cond      }, // 0xC2
    {0, 2, 0, 0, False, TYPE_8, "JP %04Xh",          op_jp           }, // 0xC3
    {0, 2, 0,-2, True,  TYPE_8, "CALL NZ,%04Xh",     op_jp_cond      }, // 0xC4
-   {0, 0, 0,-2, False, TYPE_0, "PUSH BC",           op_NOT_IMPL     }, // 0xC5
+   {0, 0, 0,-2, False, TYPE_0, "PUSH BC",           op_push         }, // 0xC5
    {0, 1, 0, 0, False, TYPE_8, "ADD A,%02Xh",       op_alu          }, // 0xC6
    {0, 0, 0,-2, False, TYPE_0, "RST 00h",           op_rst          }, // 0xC7
    {0, 0, 2, 0, True,  TYPE_0, "RET Z",             op_NOT_IMPL     }, // 0xC8
-   {0, 0, 2, 0, False, TYPE_0, "RET",               op_NOT_IMPL     }, // 0xC9
+   {0, 0, 2, 0, False, TYPE_0, "RET",               op_ret          }, // 0xC9
    {0, 2, 0, 0, False, TYPE_8, "JP Z,%04Xh",        op_jp_cond      }, // 0xCA
    UNDEFINED,                                                          // 0xCB
    {0, 2, 0,-2, True,  TYPE_8, "CALL Z,%04Xh",      op_NOT_IMPL     }, // 0xCC
-   {0, 2, 0,-2, False, TYPE_8, "CALL %04Xh",        op_NOT_IMPL     }, // 0xCD
+   {0, 2, 0,-2, False, TYPE_8, "CALL %04Xh",        op_call         }, // 0xCD
    {0, 1, 0, 0, False, TYPE_8, "ADC A,%02Xh",       op_alu          }, // 0xCE
    {0, 0, 0,-2, False, TYPE_0, "RST 08h",           op_rst          }, // 0xCF
 
    {0, 0, 2, 0, True,  TYPE_0, "RET NC",            op_NOT_IMPL     }, // 0xD0
-   {0, 0, 2, 0, False, TYPE_0, "POP DE",            op_NOT_IMPL     }, // 0xD1
+   {0, 0, 2, 0, False, TYPE_0, "POP DE",            op_pop          }, // 0xD1
    {0, 2, 0, 0, False, TYPE_8, "JP NC,%04Xh",       op_jp_cond      }, // 0xD2
    {0, 1, 0, 1, False, TYPE_8, "OUT (%02Xh),A",     op_out_nn_a     }, // 0xD3
    {0, 2, 0,-2, True,  TYPE_8, "CALL NC,%04Xh",     op_NOT_IMPL     }, // 0xD4
-   {0, 0, 0,-2, False, TYPE_0, "PUSH DE",           op_NOT_IMPL     }, // 0xD5
+   {0, 0, 0,-2, False, TYPE_0, "PUSH DE",           op_push         }, // 0xD5
    {0, 1, 0, 0, False, TYPE_8, "SUB %02Xh",         op_alu          }, // 0xD6
    {0, 0, 0,-2, False, TYPE_0, "RST 10h",           op_rst          }, // 0xD7
    {0, 0, 2, 0, True,  TYPE_0, "RET C",             op_NOT_IMPL     }, // 0xD8
@@ -1674,11 +1801,11 @@ InstrType main_instructions[256] = {
    {0, 0, 0,-2, False, TYPE_0, "RST 18h",           op_rst          }, // 0xDF
 
    {0, 0, 2, 0, True,  TYPE_0, "RET PO",            op_NOT_IMPL     }, // 0xE0
-   {0, 0, 2, 0, False, TYPE_0, "POP HL",            op_NOT_IMPL     }, // 0xE1
+   {0, 0, 2, 0, False, TYPE_0, "POP HL",            op_pop          }, // 0xE1
    {0, 2, 0, 0, False, TYPE_8, "JP PO,%04Xh",       op_jp_cond      }, // 0xE2
    {0, 0, 2,-2, False, TYPE_0, "EX (SP),HL",        op_ex_tos_hl    }, // 0xE3
    {0, 2, 0,-2, True,  TYPE_8, "CALL PO,%04Xh",     op_NOT_IMPL     }, // 0xE4
-   {0, 0, 0,-2, False, TYPE_0, "PUSH HL",           op_NOT_IMPL     }, // 0xE5
+   {0, 0, 0,-2, False, TYPE_0, "PUSH HL",           op_push         }, // 0xE5
    {0, 1, 0, 0, False, TYPE_8, "AND %02Xh",         op_alu          }, // 0xE6
    {0, 0, 0,-2, False, TYPE_0, "RST 20h",           op_rst          }, // 0xE7
    {0, 0, 2, 0, True,  TYPE_0, "RET PE",            op_NOT_IMPL     }, // 0xE8
@@ -1691,11 +1818,11 @@ InstrType main_instructions[256] = {
    {0, 0, 0,-2, False, TYPE_0, "RST 28h",           op_rst          }, // 0xEF
 
    {0, 0, 2, 0, True,  TYPE_0, "RET P",             op_NOT_IMPL     }, // 0xF0
-   {0, 0, 2, 0, False, TYPE_0, "POP AF",            op_NOT_IMPL     }, // 0xF1
+   {0, 0, 2, 0, False, TYPE_0, "POP AF",            op_pop          }, // 0xF1
    {0, 2, 0, 0, False, TYPE_8, "JP P,%04Xh",        op_jp_cond      }, // 0xF2
    {0, 0, 0, 0, False, TYPE_0, "DI",                op_di           }, // 0xF3
    {0, 2, 0,-2, True,  TYPE_8, "CALL P,%04Xh",      op_NOT_IMPL     }, // 0xF4
-   {0, 0, 0,-2, False, TYPE_0, "PUSH AF",           op_NOT_IMPL     }, // 0xF5
+   {0, 0, 0,-2, False, TYPE_0, "PUSH AF",           op_push         }, // 0xF5
    {0, 1, 0, 0, False, TYPE_8, "OR %02Xh",          op_alu          }, // 0xF6
    {0, 0, 0,-2, False, TYPE_0, "RST 30h",           op_rst          }, // 0xF7
    {0, 0, 2, 0, True,  TYPE_0, "RET M",             op_NOT_IMPL     }, // 0xF8
@@ -2499,11 +2626,11 @@ InstrType index_instructions[256] = {
    UNDEFINED,                                                          // 0xDF
 
    UNDEFINED,                                                          // 0xE0
-   {0, 0, 2, 0, False, TYPE_1, "POP %s",            op_NOT_IMPL     }, // 0xE1
+   {0, 0, 2, 0, False, TYPE_1, "POP %s",            op_pop          }, // 0xE1
    UNDEFINED,                                                          // 0xE2
    {0, 0, 2,-2, False, TYPE_1, "EX (SP),%s",        op_ex_tos_index }, // 0xE3
    UNDEFINED,                                                          // 0xE4
-   {0, 0, 0,-2, False, TYPE_1, "PUSH %s",           op_NOT_IMPL     }, // 0xE5
+   {0, 0, 0,-2, False, TYPE_1, "PUSH %s",           op_push         }, // 0xE5
    UNDEFINED,                                                          // 0xE6
    UNDEFINED,                                                          // 0xE7
    UNDEFINED,                                                          // 0xE8

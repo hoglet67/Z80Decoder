@@ -451,7 +451,6 @@ static void write_reg_pair2(int id, int value) {
          reg_a = -1;
          set_flags_undefined();
       }
-      reg_sp = value;
       break;
    case 4:
       reg_ix = value;

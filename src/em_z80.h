@@ -33,7 +33,7 @@ InstrType *table_by_prefix(int prefix);
 char *reg_by_prefix(int prefix);
 char *z80_get_state();
 void z80_reset();
-void z80_interrupt();
 int z80_get_pc();
+void z80_increment_r();
 
 #endif

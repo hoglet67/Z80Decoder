@@ -307,10 +307,14 @@ int decode_state(Z80CycleType cycle, int data) {
          break;
       }
       if (prefix == 0) {
+         // Increment the refresh address register
+         z80_increment_r();
          // Process any first prefix byte
          if (data == 0xCB || data == 0xED || data == 0xDD || data == 0xFD) {
             prefix = data;
             instr_bytes[instr_len++] = data;
+            // Increment the refresh address register a second time
+            z80_increment_r();
             break;
          }
       } else if (data == 0xCB && (prefix == 0xDD || prefix == 0xFD)) {

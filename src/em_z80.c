@@ -83,6 +83,8 @@ static int reg_ir;
 static int reg_iff1;
 static int reg_iff2;
 static int reg_im;
+static int reg_i;
+static int reg_r;
 
 #define IM_MODE_0    0
 #define IM_MODE_0_1  1
@@ -135,7 +137,7 @@ int *reg_ptr[] = {
 
 static char buffer[80];
 
-static const char default_state[] = "A=?? F=???????? BC=???? DE=???? HL=???? IX=???? IY=???? SP=???? PC=????";
+static const char default_state[] = "A=?? F=???????? BC=???? DE=???? HL=???? IX=???? IY=???? IR=???? SP=????";
 
 #define OFFSET_A   2
 #define OFFSET_F   7
@@ -147,8 +149,8 @@ static const char default_state[] = "A=?? F=???????? BC=???? DE=???? HL=???? IX=
 #define OFFSET_L  37
 #define OFFSET_IX 43
 #define OFFSET_IY 51
-#define OFFSET_SP 59
-#define OFFSET_PC 67
+#define OFFSET_IR 59
+#define OFFSET_SP 67
 
 static void write_flag(char *buffer, int flag, int value) {
    *buffer = value ? flag : ' ';
@@ -229,11 +231,14 @@ char *z80_get_state() {
    if (reg_iyl >= 0) {
       write_hex2(buffer + OFFSET_IY + 2, reg_iyl);
    }
+   if (reg_i >= 0) {
+      write_hex2(buffer + OFFSET_IR, reg_i);
+   }
+   if (reg_r >= 0) {
+      write_hex2(buffer + OFFSET_IR + 2, reg_r);
+   }
    if (reg_sp >= 0) {
       write_hex4(buffer + OFFSET_SP, reg_sp);
-   }
-   if (reg_pc >= 0) {
-      write_hex4(buffer + OFFSET_PC, reg_pc);
    }
    return buffer;
 }
@@ -263,6 +268,8 @@ void z80_reset() {
    reg_iff1    = 0;
    reg_iff2    = 0;
    reg_im      = 0;
+   reg_i       = 0;
+   reg_r       = 0;
    // Undefined on reset
    reg_b       = -1;
    reg_c       = -1;
@@ -291,7 +298,13 @@ void z80_reset() {
    reg_iyl     = -1;
 }
 
-void op_interrupt(InstrType *instr) {
+void z80_increment_r() {
+   if (reg_r >= 0) {
+      reg_r = (reg_r + 1) & 0xff;
+   }
+}
+
+static void op_interrupt(InstrType *instr) {
    if (reg_pc >= 0 && arg_write != reg_pc) {
       failflag = 1;
    }
@@ -303,6 +316,7 @@ void op_interrupt(InstrType *instr) {
       failflag = 2;
    }
 }
+
 
 // ===================================================================
 // Emulation helper
@@ -1156,6 +1170,26 @@ static void op_ex_tos_hl(InstrType *instr) {
 // Emulated instructions - Load
 // ===================================================================
 
+static void op_load_a_i(InstrType *instr) {
+   reg_a = reg_i;
+   update_pc();
+}
+
+static void op_load_a_r(InstrType *instr) {
+   reg_a = reg_r;
+   update_pc();
+}
+
+static void op_load_i_a(InstrType *instr) {
+   reg_i = reg_a;
+   update_pc();
+}
+
+static void op_load_r_a(InstrType *instr) {
+   reg_r = reg_a;
+   update_pc();
+}
+
 static void op_load_sp_hl(InstrType *instr) {
    reg_sp = read_reg_pair1(ID_RR_HL);
    update_pc();
@@ -1990,7 +2024,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x44
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x45
    {0, 0, 0, 0, False, TYPE_0, "IM 0",              op_im           }, // 0x46
-   {0, 0, 0, 0, False, TYPE_0, "LD I,A",            op_NOT_IMPL     }, // 0x47
+   {0, 0, 0, 0, False, TYPE_0, "LD I,A",            op_load_i_a     }, // 0x47
    {0, 0, 1, 0, False, TYPE_0, "IN C,(C)",          op_in_r_c       }, // 0x48
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),C",         op_out_c_r      }, // 0x49
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,BC",         op_NOT_IMPL     }, // 0x4A
@@ -1998,7 +2032,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x4C
    {0, 0, 2, 0, False, TYPE_0, "RETI",              op_NOT_IMPL     }, // 0x4D
    {0, 0, 0, 0, False, TYPE_0, "IM 0/1",            op_im           }, // 0x4E
-   {0, 0, 0, 0, False, TYPE_0, "LD R,A",            op_NOT_IMPL     }, // 0x4F
+   {0, 0, 0, 0, False, TYPE_0, "LD R,A",            op_load_r_a     }, // 0x4F
 
    {0, 0, 1, 0, False, TYPE_0, "IN D,(C)",          op_in_r_c       }, // 0x50
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),D",         op_out_c_r      }, // 0x51
@@ -2007,7 +2041,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x54
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x55
    {0, 0, 0, 0, False, TYPE_0, "IM 1",              op_im           }, // 0x56
-   {0, 0, 0, 0, False, TYPE_0, "LD A,I",            op_NOT_IMPL     }, // 0x57
+   {0, 0, 0, 0, False, TYPE_0, "LD A,I",            op_load_a_i     }, // 0x57
    {0, 0, 1, 0, False, TYPE_0, "IN E,(C)",          op_in_r_c       }, // 0x58
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),E",         op_out_c_r      }, // 0x59
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,DE",         op_NOT_IMPL     }, // 0x5A
@@ -2015,7 +2049,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x5C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x5D
    {0, 0, 0, 0, False, TYPE_0, "IM 2",              op_im           }, // 0x5E
-   {0, 0, 0, 0, False, TYPE_0, "LD A,R",            op_NOT_IMPL     }, // 0x5F
+   {0, 0, 0, 0, False, TYPE_0, "LD A,R",            op_load_a_r     }, // 0x5F
 
    {0, 0, 1, 0, False, TYPE_0, "IN H,(C)",          op_in_r_c       }, // 0x60
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),H",         op_out_c_r      }, // 0x61

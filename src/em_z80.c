@@ -741,7 +741,8 @@ static void op_alu(InstrType *instr) {
    int operand;
    if (type == 2) {
       // alu[y] r[z]
-      operand = *reg_ptr[opcode & 7];
+      int r_id = get_r_id(opcode & 7);
+      operand = *reg_ptr[r_id];
    } else if (type == 3 && (opcode & 7) == 6) {
       // alu[y] n
       operand = arg_imm;
@@ -1018,6 +1019,7 @@ static void op_misc_rotate(InstrType *instr) {
          result &= 0xff;
          set_sign_zero(result);
          flag_pv = partab[result];
+         reg_a = result;
       } else {
          set_flags_undefined();
       }
@@ -2584,68 +2586,68 @@ InstrType index_instructions[256] = {
    UNDEFINED,                                                          // 0x81
    UNDEFINED,                                                          // 0x82
    UNDEFINED,                                                          // 0x83
-   {0, 0, 0, 0, False, TYPE_1, "ADD A,%sh",         op_NOT_IMPL     }, // 0x84
-   {0, 0, 0, 0, False, TYPE_1, "ADD A,%sl",         op_NOT_IMPL     }, // 0x85
-   {1, 0, 1, 0, False, TYPE_5, "ADD A,(%s%+d)",     op_NOT_IMPL     }, // 0x86
+   {0, 0, 0, 0, False, TYPE_1, "ADD A,%sh",         op_alu          }, // 0x84
+   {0, 0, 0, 0, False, TYPE_1, "ADD A,%sl",         op_alu          }, // 0x85
+   {1, 0, 1, 0, False, TYPE_5, "ADD A,(%s%+d)",     op_alu          }, // 0x86
    UNDEFINED,                                                          // 0x87
    UNDEFINED,                                                          // 0x88
    UNDEFINED,                                                          // 0x89
    UNDEFINED,                                                          // 0x8A
    UNDEFINED,                                                          // 0x8B
-   {0, 0, 0, 0, False, TYPE_1, "ADC A,%sh",         op_NOT_IMPL     }, // 0x8C
-   {0, 0, 0, 0, False, TYPE_1, "ADC A,%sl",         op_NOT_IMPL     }, // 0x8D
-   {1, 0, 1, 0, False, TYPE_5, "ADC A,(%s%+d)",     op_NOT_IMPL     }, // 0x8E
+   {0, 0, 0, 0, False, TYPE_1, "ADC A,%sh",         op_alu          }, // 0x8C
+   {0, 0, 0, 0, False, TYPE_1, "ADC A,%sl",         op_alu          }, // 0x8D
+   {1, 0, 1, 0, False, TYPE_5, "ADC A,(%s%+d)",     op_alu          }, // 0x8E
    UNDEFINED,                                                          // 0x8F
 
    UNDEFINED,                                                          // 0x90
    UNDEFINED,                                                          // 0x91
    UNDEFINED,                                                          // 0x92
    UNDEFINED,                                                          // 0x93
-   {0, 0, 0, 0, False, TYPE_1, "SUB %sh",           op_NOT_IMPL     }, // 0x94
-   {0, 0, 0, 0, False, TYPE_1, "SUB %sl",           op_NOT_IMPL     }, // 0x95
-   {1, 0, 1, 0, False, TYPE_5, "SUB (%s%+d)",       op_NOT_IMPL     }, // 0x96
+   {0, 0, 0, 0, False, TYPE_1, "SUB %sh",           op_alu          }, // 0x94
+   {0, 0, 0, 0, False, TYPE_1, "SUB %sl",           op_alu          }, // 0x95
+   {1, 0, 1, 0, False, TYPE_5, "SUB (%s%+d)",       op_alu          }, // 0x96
    UNDEFINED,                                                          // 0x97
    UNDEFINED,                                                          // 0x98
    UNDEFINED,                                                          // 0x99
    UNDEFINED,                                                          // 0x9A
    UNDEFINED,                                                          // 0x9B
-   {0, 0, 0, 0, False, TYPE_1, "SBC A,%sh",         op_NOT_IMPL     }, // 0x9C
-   {0, 0, 0, 0, False, TYPE_1, "SBC A,%sl",         op_NOT_IMPL     }, // 0x9D
-   {1, 0, 1, 0, False, TYPE_5, "SBC A,(%s%+d)",     op_NOT_IMPL     }, // 0x9E
+   {0, 0, 0, 0, False, TYPE_1, "SBC A,%sh",         op_alu          }, // 0x9C
+   {0, 0, 0, 0, False, TYPE_1, "SBC A,%sl",         op_alu          }, // 0x9D
+   {1, 0, 1, 0, False, TYPE_5, "SBC A,(%s%+d)",     op_alu          }, // 0x9E
    UNDEFINED,                                                          // 0x9F
 
    UNDEFINED,                                                          // 0xA0
    UNDEFINED,                                                          // 0xA1
    UNDEFINED,                                                          // 0xA2
    UNDEFINED,                                                          // 0xA3
-   {0, 0, 0, 0, False, TYPE_1, "AND %sh",           op_NOT_IMPL     }, // 0xA4
-   {0, 0, 0, 0, False, TYPE_1, "AND %sl",           op_NOT_IMPL     }, // 0xA5
-   {1, 0, 1, 0, False, TYPE_5, "AND (%s%+d)",       op_NOT_IMPL     }, // 0xA6
+   {0, 0, 0, 0, False, TYPE_1, "AND %sh",           op_alu          }, // 0xA4
+   {0, 0, 0, 0, False, TYPE_1, "AND %sl",           op_alu          }, // 0xA5
+   {1, 0, 1, 0, False, TYPE_5, "AND (%s%+d)",       op_alu          }, // 0xA6
    UNDEFINED,                                                          // 0xA7
    UNDEFINED,                                                          // 0xA8
    UNDEFINED,                                                          // 0xA9
    UNDEFINED,                                                          // 0xAA
    UNDEFINED,                                                          // 0xAB
-   {0, 0, 0, 0, False, TYPE_1, "XOR %sh",           op_NOT_IMPL     }, // 0xAC
-   {0, 0, 0, 0, False, TYPE_1, "XOR %sl",           op_NOT_IMPL     }, // 0xAD
-   {1, 0, 1, 0, False, TYPE_5, "XOR (%s%+d)",       op_NOT_IMPL     }, // 0xAE
+   {0, 0, 0, 0, False, TYPE_1, "XOR %sh",           op_alu          }, // 0xAC
+   {0, 0, 0, 0, False, TYPE_1, "XOR %sl",           op_alu          }, // 0xAD
+   {1, 0, 1, 0, False, TYPE_5, "XOR (%s%+d)",       op_alu          }, // 0xAE
    UNDEFINED,                                                          // 0xEF
 
    UNDEFINED,                                                          // 0xB0
    UNDEFINED,                                                          // 0xB1
    UNDEFINED,                                                          // 0xB2
    UNDEFINED,                                                          // 0xB3
-   {0, 0, 0, 0, False, TYPE_1, "OR %sh",            op_NOT_IMPL     }, // 0xB4
-   {0, 0, 0, 0, False, TYPE_1, "OR %sl",            op_NOT_IMPL     }, // 0xB5
-   {1, 0, 1, 0, False, TYPE_5, "OR (%s%+d)",        op_NOT_IMPL     }, // 0xB6
+   {0, 0, 0, 0, False, TYPE_1, "OR %sh",            op_alu          }, // 0xB4
+   {0, 0, 0, 0, False, TYPE_1, "OR %sl",            op_alu          }, // 0xB5
+   {1, 0, 1, 0, False, TYPE_5, "OR (%s%+d)",        op_alu          }, // 0xB6
    UNDEFINED,                                                          // 0xB7
    UNDEFINED,                                                          // 0xB8
    UNDEFINED,                                                          // 0xB9
    UNDEFINED,                                                          // 0xBA
    UNDEFINED,                                                          // 0xBB
-   {0, 0, 0, 0, False, TYPE_1, "CP %sh",            op_NOT_IMPL     }, // 0xBC
-   {0, 0, 0, 0, False, TYPE_1, "CP %sl",            op_NOT_IMPL     }, // 0xBD
-   {1, 0, 1, 0, False, TYPE_5, "CP (%s%+d)",        op_NOT_IMPL     }, // 0xBE
+   {0, 0, 0, 0, False, TYPE_1, "CP %sh",            op_alu          }, // 0xBC
+   {0, 0, 0, 0, False, TYPE_1, "CP %sl",            op_alu          }, // 0xBD
+   {1, 0, 1, 0, False, TYPE_5, "CP (%s%+d)",        op_alu          }, // 0xBE
    UNDEFINED,                                                          // 0xBF
 
    UNDEFINED,                                                          // 0xC0

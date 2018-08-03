@@ -314,6 +314,9 @@ static void op_interrupt(InstrType *instr) {
    default:
       failflag = 2;
    }
+   if (reg_sp >= 0) {
+      reg_sp = (reg_sp - 2) & 0xffff;
+   }
 }
 
 

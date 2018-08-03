@@ -1051,6 +1051,8 @@ static void op_add_hl_rr(InstrType *instr) {
       int cbits = result ^ op1 ^ op2;
       flag_c = (cbits >> 16) & 1;
       flag_h = (cbits >> 12) & 1;
+      flag_f5 = (result >> 13) & 1;
+      flag_f3 = (result >> 11) & 1;
       write_reg_pair1(dst_id, result & 0xffff);
    }
    flag_n = 0;

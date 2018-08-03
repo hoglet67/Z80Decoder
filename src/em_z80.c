@@ -1783,23 +1783,23 @@ static void op_bit(InstrType *instr) {
          // BIT
          result = operand & (1 << minor_op);
          set_sign_zero(result);
-         if (operand == 0xcb && reg_id == ID_MEMORY) {
-            // Correct the f5 and f3 flags for BIT N,(HL)
-            if (reg_memptr >= 0) {
-               flag_f5 = (reg_memptr >> 13) & 1;
-               flag_f3 = (reg_memptr >> 11) & 1;
-            } else {
-               flag_f5 = -1;
-               flag_f3 = -1;
-            }
-         } else if (operand != 0xcb) {
+         if (prefix == 0xddcb || prefix == 0xfdcb) {
             // Correct the f5 and f3 flags for BIT N,(IX+D)
-            int rr_id = get_hl_or_idx_id();
+            int rr_id = (prefix == 0xfdcb) ? ID_RR_IY : ID_RR_IX;
             int reg = read_reg_pair1(rr_id);
             if (reg >= 0) {
                reg += arg_dis;
                flag_f5 = (reg >> 13) & 1;
                flag_f3 = (reg >> 11) & 1;
+            } else {
+               flag_f5 = -1;
+               flag_f3 = -1;
+            }
+         } else if (prefix == 0xcb && reg_id == ID_MEMORY) {
+            // Correct the f5 and f3 flags for BIT N,(HL)
+            if (reg_memptr >= 0) {
+               flag_f5 = (reg_memptr >> 13) & 1;
+               flag_f3 = (reg_memptr >> 11) & 1;
             } else {
                flag_f5 = -1;
                flag_f3 = -1;

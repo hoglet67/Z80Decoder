@@ -770,6 +770,9 @@ static void op_rst(InstrType *instr) {
       failflag = 1;
    }
    reg_pc = opcode & 0x38;
+   if (reg_sp >= 0) {
+      reg_sp = (reg_sp - 2) & 0xffff;
+   }
 }
 
 static void op_halt(InstrType *instr) {

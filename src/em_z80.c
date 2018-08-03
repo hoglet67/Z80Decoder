@@ -243,7 +243,7 @@ int z80_get_pc() {
 }
 
 // ===================================================================
-// Emulation reset
+// Emulation reset / interrupt
 // ===================================================================
 
 void z80_reset() {
@@ -289,6 +289,19 @@ void z80_reset() {
    reg_ixl     = -1;
    reg_iyh     = -1;
    reg_iyl     = -1;
+}
+
+void op_interrupt(InstrType *instr) {
+   if (reg_pc >= 0 && arg_write != reg_pc) {
+      failflag = 1;
+   }
+   switch (reg_im) {
+   case IM_MODE_1:
+      reg_pc = 0x0038;
+      break;
+   default:
+      failflag = 2;
+   }
 }
 
 // ===================================================================
@@ -2983,6 +2996,9 @@ InstrType index_bit_instructions[256] = {
    {0, 0, 1, 1, False, TYPE_5, "SET 7,(%s%+d),A",   op_bit          }  // 0xFF
 };
 
+
+InstrType special_interrupt =
+   {0, 0, 0,-2, False, TYPE_0, "INTERRUPT",   op_interrupt          };
 
 InstrType *table_by_prefix(int prefix) {
    switch (prefix) {

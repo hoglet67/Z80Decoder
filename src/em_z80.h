@@ -27,10 +27,13 @@ typedef struct Instr {
    void (*emulate)(struct Instr *);
 } InstrType;
 
+extern InstrType special_interrupt;
+
 InstrType *table_by_prefix(int prefix);
 char *reg_by_prefix(int prefix);
 char *z80_get_state();
 void z80_reset();
+void z80_interrupt();
 int z80_get_pc();
 
 #endif

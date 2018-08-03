@@ -263,8 +263,6 @@ int decode_state(Z80CycleType cycle, int data) {
    static int want_wr_be  = False;
    static int conditional = False;
 
-   InstrType *table = NULL;
-
    int ret = 0;
 
    switch (state) {
@@ -300,15 +298,9 @@ int decode_state(Z80CycleType cycle, int data) {
             state = S_WOP1;
             break;
          }
-         if (cycle == C_INTACK) {
-            // INT always followed by two writes
-            want_write = 2;
-            state = S_WOP1;
-            break;
-         }
       }
       // Check the cycle type...
-      if (cycle != ((prefix == 0xDDCB || prefix == 0xFDCB) ? C_MEMRD : C_FETCH)) {
+      if (cycle != C_INTACK && cycle != ((prefix == 0xDDCB || prefix == 0xFDCB) ? C_MEMRD : C_FETCH)) {
          mnemonic = "Incorrect cycle type for prefix/opcode";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
@@ -328,12 +320,20 @@ int decode_state(Z80CycleType cycle, int data) {
          state = S_PREDIS;
          break;
       }
-      // Otherwise, continue to decode the opcode
-      table = table_by_prefix(prefix);
-      arg_reg = reg_by_prefix(prefix);
-      opcode = data;
-      instr_bytes[instr_len++] = data;
-      instruction = &table[opcode];
+      if (cycle == C_INTACK) {
+         // Treat an interrupt as just another instruction
+         prefix = 0;
+         instr_len = 0;
+         opcode = 0;
+         instruction = &special_interrupt;
+      } else {
+         // Otherwise, continue to decode the opcode
+         InstrType *table = table_by_prefix(prefix);
+         arg_reg = reg_by_prefix(prefix);
+         opcode = data;
+         instr_bytes[instr_len++] = data;
+         instruction = &table[opcode];
+      }
       if (instruction->want_dis < 0) {
          mnemonic = "Invalid instruction";
          ann_dasm = ANN_WARN;

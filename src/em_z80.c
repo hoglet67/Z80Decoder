@@ -578,8 +578,15 @@ static void op_nop(InstrType *instr) {
 static void op_push(InstrType *instr) {
    int reg_id = get_rr_id();
    int reg = read_reg_pair2(reg_id);
-   if (reg >= 0 && reg != arg_write) {
-      failflag = 1;
+   if (reg_id == ID_RR_AF) {
+      // For now, ignore flag bits 5 and 3
+      if (reg >= 0 && (reg & 0xD7) != (arg_write & 0xD7)) {
+         failflag = 1;
+      }
+   } else {
+      if (reg >= 0 && reg != arg_write) {
+         failflag = 1;
+      }
    }
    write_reg_pair2(reg_id, arg_write);
    if (reg_sp >= 0) {
@@ -1019,9 +1026,9 @@ static void op_dec_r(InstrType *instr) {
    int *reg = reg_ptr[reg_id];
    int result = ((*reg) - 1) & 0xff;
    set_sign_zero(result);
-   flag_h  = (result & 0x0f) == 0;
+   flag_h  = (result & 0x0f) == 0x0f;
    flag_pv = (result == 0x80);
-   flag_n  = 0;
+   flag_n  = 1;
    if (reg_id == ID_MEMORY) {
       if (arg_write != result) {
          failflag = 1;
@@ -1046,9 +1053,9 @@ static void op_dec_rr(InstrType *instr) {
 static void op_dec_idx_disp(InstrType *instr) {
    int result = (arg_read - 1) & 0xff;
    set_sign_zero(result);
-   flag_h  = (result & 0x0f) == 0;
+   flag_h  = (result & 0x0f) == 0x0f;
    flag_pv = (result == 0x80);
-   flag_n  = 0;
+   flag_n  = 1;
    if (arg_write != result) {
       failflag = 1;
    }

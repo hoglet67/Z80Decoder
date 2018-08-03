@@ -1209,6 +1209,8 @@ static void op_misc_rotate(InstrType *instr) {
       }
       if (result >= 0) {
          result &= 0xff;
+         flag_f5 = (result >> 5) & 1;
+         flag_f3 = (result >> 3) & 1;
          reg_a = result;
       } else {
          set_flags_undefined();

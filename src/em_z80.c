@@ -890,6 +890,24 @@ static void op_alu(InstrType *instr) {
    update_pc();
 }
 
+static void op_neg(InstrType *instr) {
+   int result;
+   int cbits;
+   if (reg_a >= 0) {
+      result  = -reg_a;
+      set_sign_zero(result);
+      cbits   = reg_a ^ result;
+      flag_c  = (cbits >> 8) & 1;
+      flag_h  = (cbits >> 4) & 1;
+      flag_pv = ((cbits >> 8) ^ (cbits >> 7)) & 1;
+      reg_a   = result & 0xff;
+   } else {
+      set_flags_undefined();
+   }
+   flag_n = 1;
+   update_pc();
+}
+
 static void op_adc_hl_rr(InstrType *instr) {
    int reg_id = get_rr_id();
    // This only appears in the ED block, hence uses just hl as the destination
@@ -2046,7 +2064,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),B",         op_out_c_r      }, // 0x41
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,BC",         op_sbc_hl_rr    }, // 0x42
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),BC",     op_store_mem16  }, // 0x43
-   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x44
+   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x44
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x45
    {0, 0, 0, 0, False, TYPE_0, "IM 0",              op_im           }, // 0x46
    {0, 0, 0, 0, False, TYPE_0, "LD I,A",            op_load_i_a     }, // 0x47
@@ -2054,7 +2072,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),C",         op_out_c_r      }, // 0x49
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,BC",         op_adc_hl_rr    }, // 0x4A
    {0, 2, 2, 0, False, TYPE_8, "LD BC,(%04Xh)",     op_load_mem16   }, // 0x4B
-   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x4C
+   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x4C
    {0, 0, 2, 0, False, TYPE_0, "RETI",              op_NOT_IMPL     }, // 0x4D
    {0, 0, 0, 0, False, TYPE_0, "IM 0/1",            op_im           }, // 0x4E
    {0, 0, 0, 0, False, TYPE_0, "LD R,A",            op_load_r_a     }, // 0x4F
@@ -2063,7 +2081,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),D",         op_out_c_r      }, // 0x51
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,DE",         op_sbc_hl_rr    }, // 0x52
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),DE",     op_store_mem16  }, // 0x53
-   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x54
+   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x54
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x55
    {0, 0, 0, 0, False, TYPE_0, "IM 1",              op_im           }, // 0x56
    {0, 0, 0, 0, False, TYPE_0, "LD A,I",            op_load_a_i     }, // 0x57
@@ -2071,7 +2089,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),E",         op_out_c_r      }, // 0x59
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,DE",         op_adc_hl_rr    }, // 0x5A
    {0, 2, 2, 0, False, TYPE_8, "LD DE,(%04Xh)",     op_load_mem16   }, // 0x5B
-   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x5C
+   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x5C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x5D
    {0, 0, 0, 0, False, TYPE_0, "IM 2",              op_im           }, // 0x5E
    {0, 0, 0, 0, False, TYPE_0, "LD A,R",            op_load_a_r     }, // 0x5F
@@ -2080,7 +2098,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),H",         op_out_c_r      }, // 0x61
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,HL",         op_sbc_hl_rr    }, // 0x62
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),HL",     op_store_mem16  }, // 0x63
-   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x64
+   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x64
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x65
    {0, 0, 0, 0, False, TYPE_0, "IM 0",              op_im           }, // 0x66
    {0, 0, 1, 1, False, TYPE_0, "RRD",               op_NOT_IMPL     }, // 0x67
@@ -2088,7 +2106,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),L",         op_out_c_r      }, // 0x69
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,HL",         op_adc_hl_rr    }, // 0x6A
    {0, 2, 2, 0, False, TYPE_8, "LD HL,(%04Xh)",     op_load_mem16   }, // 0x6B
-   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x6C
+   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x6C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x6D
    {0, 0, 0, 0, False, TYPE_0, "IM 0/1",            op_im           }, // 0x6E
    {0, 0, 1, 1, False, TYPE_0, "RLD",               op_NOT_IMPL     }, // 0x6F
@@ -2097,7 +2115,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),0",         op_out_c_r      }, // 0x71
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,SP",         op_sbc_hl_rr    }, // 0x72
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),SP",     op_store_mem16  }, // 0x73
-   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x74
+   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x74
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x75
    {0, 0, 0, 0, False, TYPE_0, "IM 1",              op_im           }, // 0x76
    UNDEFINED,                                                          // 0x77
@@ -2105,7 +2123,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),A",         op_out_c_r      }, // 0x79
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,SP",         op_adc_hl_rr    }, // 0x7A
    {0, 2, 2, 0, False, TYPE_8, "LD SP,(%04Xh)",     op_load_mem16   }, // 0x7B
-   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x7C
+   {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x7C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x7D
    {0, 0, 0, 0, False, TYPE_0, "IM 2",              op_im           }, // 0x7E
    UNDEFINED,                                                          // 0x7F

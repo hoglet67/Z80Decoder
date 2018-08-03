@@ -73,8 +73,10 @@ static int alt_reg_h;
 static int alt_reg_l;
 
 // Index registers
-static int reg_ix;
-static int reg_iy;
+static int reg_ixl;
+static int reg_ixh;
+static int reg_iyl;
+static int reg_iyh;
 
 // Other
 static int reg_ir;
@@ -198,11 +200,17 @@ char *z80_get_state() {
    if (reg_l >= 0) {
       write_hex2(buffer + OFFSET_L, reg_l);
    }
-   if (reg_ix >= 0) {
-      write_hex4(buffer + OFFSET_IX, reg_ix);
+   if (reg_ixh >= 0) {
+      write_hex2(buffer + OFFSET_IX, reg_ixh);
    }
-   if (reg_iy >= 0) {
-      write_hex4(buffer + OFFSET_IY, reg_iy);
+   if (reg_ixl >= 0) {
+      write_hex2(buffer + OFFSET_IX + 2, reg_ixl);
+   }
+   if (reg_iyh >= 0) {
+      write_hex2(buffer + OFFSET_IY, reg_iyh);
+   }
+   if (reg_iyl >= 0) {
+      write_hex2(buffer + OFFSET_IY + 2, reg_iyl);
    }
    if (reg_sp >= 0) {
       write_hex4(buffer + OFFSET_SP, reg_sp);
@@ -260,8 +268,10 @@ void z80_reset() {
    alt_reg_e   = -1;
    alt_reg_h   = -1;
    alt_reg_l   = -1;
-   reg_ix      = -1;
-   reg_iy      = -1;
+   reg_ixh     = -1;
+   reg_ixl     = -1;
+   reg_iyh     = -1;
+   reg_iyl     = -1;
 }
 
 // ===================================================================
@@ -307,8 +317,8 @@ static void set_flags_undefined() {
    flag_c  = -1;
 }
 
+static int read_reg_pair_helper(int id, int type) {
    // Cases 4 and 5 are used for 0xDD and 0xFD prefixed operations
-static int read_reg_pair1(int id) {
    switch(id) {
    case 0:
       if (reg_b >= 0 && reg_c >= 0) {
@@ -326,16 +336,28 @@ static int read_reg_pair1(int id) {
       }
       break;
    case 3:
-      return reg_sp;
+      if (type == 1) {
+         return reg_sp;
+      } else {
+         if (reg_a >= 0 && flag_s >= 0 && flag_z >= 0 && flag_f5 >= 0 && flag_h >= 0 && flag_f3 >= 0 && flag_pv >= 0 && flag_n >= 0 && flag_c >= 0) {
+            return (reg_a << 8) | (flag_s << 7) | (flag_z << 6) | (flag_f5 << 5) | (flag_h << 4) | (flag_f3 << 3) | (flag_pv << 2) | (flag_n << 1) | flag_c;
+         }
+      }
    case 4:
-      return reg_ix;
+      if (reg_ixh >= 0 && reg_ixl >= 0) {
+         return (reg_ixh << 8) | reg_ixl;
+      }
+      break;
    case 5:
-      return reg_iy;
+      if (reg_iyh >= 0 && reg_iyl >= 0) {
+         return (reg_iyh << 8) | reg_iyl;
+      }
+      break;
    }
    return -1;
 }
 
-static void write_reg_pair1(int id, int value) {
+static void write_reg_pair_helper(int id, int value, int type) {
    // Cases 4 and 5 are used for 0xDD and 0xFD prefixed operations
    switch(id) {
    case 0:
@@ -366,99 +388,60 @@ static void write_reg_pair1(int id, int value) {
       }
       break;
    case 3:
-      reg_sp = value;
+      if (type == 1) {
+         reg_sp = value;
+      } else {
+         if (value >= 0) {
+            reg_a   = (value >> 8) & 0xff;
+            flag_s  = (value >> 7) & 1;
+            flag_z  = (value >> 6) & 1;
+            flag_f5 = (value >> 5) & 1;
+            flag_h  = (value >> 4) & 1;
+            flag_f3 = (value >> 3) & 1;
+            flag_pv = (value >> 2) & 1;
+            flag_n  = (value >> 1) & 1;
+            flag_c  = value        & 1;
+         } else {
+            reg_a = -1;
+            set_flags_undefined();
+         }
+      }
       break;
    case 4:
-      reg_ix = value;
+      if (value >= 0) {
+         reg_ixh = (value >> 8) & 0xff;
+         reg_ixl = value & 0xff;
+      } else {
+         reg_ixh = -1;
+         reg_ixl = -1;
+      }
       break;
    case 5:
-      reg_iy = value;
+      if (value >= 0) {
+         reg_iyh = (value >> 8) & 0xff;
+         reg_iyl = value & 0xff;
+      } else {
+         reg_iyh = -1;
+         reg_iyl = -1;
+      }
       break;
    }
+}
+
+static int read_reg_pair1(int id) {
+   return read_reg_pair_helper(id, 1);
 }
 
 static int read_reg_pair2(int id) {
-   switch(id) {
-   case 0:
-      if (reg_b >= 0 && reg_c >= 0) {
-         return (reg_b << 8) | reg_c;
-      }
-      break;
-   case 1:
-      if (reg_d >= 0 && reg_e >= 0) {
-         return (reg_d << 8) | reg_e;
-      }
-      break;
-   case 2:
-      if (reg_h >= 0 && reg_l >= 0) {
-         return (reg_h << 8) | reg_l;
-      }
-      break;
-   case 3:
-      if (reg_a >= 0 && flag_s >= 0 && flag_z >= 0 && flag_f5 >= 0 && flag_h >= 0 && flag_f3 >= 0 && flag_pv >= 0 && flag_n >= 0 && flag_c >= 0) {
-         return (reg_a << 8) | (flag_s << 7) | (flag_z << 6) | (flag_f5 << 5) | (flag_h << 4) | (flag_f3 << 3) | (flag_pv << 2) | (flag_n << 1) | flag_c;
-      }
-      break;
-   case 4:
-      return reg_ix;
-   case 5:
-      return reg_iy;
-   }
-   return -1;
+   return read_reg_pair_helper(id, 2);
+}
+
+static void write_reg_pair1(int id, int value) {
+   write_reg_pair_helper(id, value, 1);
 }
 
 static void write_reg_pair2(int id, int value) {
-   switch(id) {
-   case 0:
-      if (value >= 0) {
-         reg_b = (value >> 8) & 0xff;
-         reg_c = value & 0xff;
-      } else {
-         reg_b = -1;
-         reg_c = -1;
-      }
-      break;
-   case 1:
-      if (value >= 0) {
-         reg_d = (value >> 8) & 0xff;
-         reg_e = value & 0xff;
-      } else {
-         reg_d = -1;
-         reg_e = -1;
-      }
-      break;
-   case 2:
-      if (value >= 0) {
-         reg_h = (value >> 8) & 0xff;
-         reg_l = value & 0xff;
-      } else {
-         reg_h = -1;
-         reg_l = -1;
-      }
-      break;
-   case 3:
-      if (value >= 0) {
-         reg_a   = (value >> 8) & 0xff;
-         flag_s  = (value >> 7) & 1;
-         flag_z  = (value >> 6) & 1;
-         flag_f5 = (value >> 5) & 1;
-         flag_h  = (value >> 4) & 1;
-         flag_f3 = (value >> 3) & 1;
-         flag_pv = (value >> 2) & 1;
-         flag_n  = (value >> 1) & 1;
-         flag_c  = value        & 1;
-      } else {
-         reg_a = -1;
-         set_flags_undefined();
-      }
-      break;
-   case 4:
-      reg_ix = value;
-      break;
-   case 5:
-      reg_iy = value;
-      break;
-   }
+   write_reg_pair_helper(id, value, 2);
 }
 
 static void swap(int *reg1, int *reg2) {
@@ -493,9 +476,9 @@ static void op_nop(InstrType *instr) {
 static void op_push(InstrType *instr) {
    int reg;
    if (prefix == 0xDD) {
-      reg = reg_ix;
+      reg = read_reg_pair2(ID_RR_IX);
    } else if (prefix == 0xFD) {
-      reg = reg_iy;
+      reg = read_reg_pair2(ID_RR_IY);
    } else {
       reg = read_reg_pair2((opcode >> 4) & 3);
    }
@@ -510,9 +493,9 @@ static void op_push(InstrType *instr) {
 
 static void op_pop(InstrType *instr) {
    if (prefix == 0xDD) {
-      reg_ix = arg_read;
+      write_reg_pair2(ID_RR_IX, arg_read);
    } else if (prefix == 0xFD) {
-      reg_iy = arg_read;
+      write_reg_pair2(ID_RR_IY, arg_read);
    } else {
       write_reg_pair2((opcode >> 4) & 3, arg_read);
    }
@@ -654,7 +637,7 @@ static void op_jp_hl(InstrType *instr) {
 }
 
 static void op_jp_idx(InstrType *instr) {
-   reg_pc = IS_IY ? reg_iy : reg_ix;
+   reg_pc = read_reg_pair1(IS_IY ? ID_RR_IY : ID_RR_IX);
 }
 
 static void op_jp_cond(InstrType *instr) {
@@ -880,24 +863,27 @@ static void op_inc_rr(InstrType *instr) {
 }
 
 static void op_inc_idx(InstrType *instr) {
-   int *i = IS_IY ? &reg_iy : &reg_ix;
-   if ((*i) >= 0) {
-      *i = ((*i) + 1) & 0xffff;
+   int reg_id = IS_IY ? ID_RR_IY : ID_RR_IX;
+   int val = read_reg_pair1(reg_id);
+   if (val >= 0) {
+      write_reg_pair1(reg_id, (val + 1) & 0xffff);
+   } else {
+      write_reg_pair1(reg_id, -1);
    }
    update_pc();
 }
 
 static void op_inc_idx_h(InstrType *instr) {
-   int *i = IS_IY ? &reg_iy : &reg_ix;
+   int *i = IS_IY ? &reg_iyh : &reg_ixh;
    if ((*i) >= 0) {
-      *i = ((*i) + 0x100) & 0xffff;
+      *i = ((*i) + 1) & 0xff;
    }
 
 }
 static void op_inc_idx_l(InstrType *instr) {
-   int *i = IS_IY ? &reg_iy : &reg_ix;
+   int *i = IS_IY ? &reg_iyl : &reg_ixl;
    if ((*i) >= 0) {
-      *i = ((*i) & 0xff00) | (((*i) + 1) & 0x00ff);
+      *i = ((*i) + 1) & 0xff;
    }
    update_pc();
 }
@@ -944,25 +930,28 @@ static void op_dec_rr(InstrType *instr) {
 }
 
 static void op_dec_idx(InstrType *instr) {
-   int *i = IS_IY ? &reg_iy : &reg_ix;
-   if ((*i) >= 0) {
-      *i = ((*i) - 1) & 0xffff;
+   int reg_id = IS_IY ? ID_RR_IY : ID_RR_IX;
+   int val = read_reg_pair1(reg_id);
+   if (val >= 0) {
+      write_reg_pair1(reg_id, (val - 1) & 0xffff);
+   } else {
+      write_reg_pair1(reg_id, -1);
    }
    update_pc();
 }
 
 static void op_dec_idx_h(InstrType *instr) {
-   int *i = IS_IY ? &reg_iy : &reg_ix;
+   int *i = IS_IY ? &reg_iyh : &reg_ixh;
    if ((*i) >= 0) {
-      *i = ((*i) - 0x100) & 0xffff;
+      *i = ((*i) - 1) & 0xff;
    }
    update_pc();
 }
 
 static void op_dec_idx_l(InstrType *instr) {
-   int *i = IS_IY ? &reg_iy : &reg_ix;
+   int *i = IS_IY ? &reg_iyl : &reg_ixl;
    if ((*i) >= 0) {
-      *i = ((*i) & 0xff00) | (((*i) - 1) & 0x00ff);
+      *i = ((*i) - 1) & 0xff;
    }
    update_pc();
 }
@@ -1166,11 +1155,12 @@ static void op_ex_tos_hl(InstrType *instr) {
 
 static void op_ex_tos_index(InstrType *instr) {
    // (SP) <=> Index_low; (SP + 1) <=> Index_high
-   int *i = IS_IY ? &reg_iy : &reg_ix;
-   if ((*i) >= 0 && (*i) != arg_write) {
+   int id = IS_IY ? ID_RR_IY : ID_RR_IX;
+   int idx = read_reg_pair1(id);
+   if (idx >= 0 && idx != arg_write) {
       failflag = 1;
    }
-   *i = arg_read;
+   write_reg_pair1(id, arg_read);
    update_pc();
 }
 
@@ -1200,26 +1190,14 @@ static void op_load_reg8(InstrType *instr) {
 }
 
 static void op_load_idx_l(InstrType *instr) {
-   int *reg = IS_IY ? &reg_iy : &reg_ix;
-   if ((*reg) >= 0) {
-      *reg &= 0xff00;
-      *reg |= arg_imm;
-   } else {
-      // Partial load case not covered
-      failflag = 2;
-   }
+   int *reg = IS_IY ? &reg_iyl : &reg_ixl;
+   *reg = arg_imm;
    update_pc();
 }
 
 static void op_load_idx_h(InstrType *instr) {
-   int *reg = IS_IY ? &reg_iy : &reg_ix;
-   if ((*reg) >= 0) {
-      *reg &= 0x00ff;
-      *reg |= arg_imm << 8;
-   } else {
-      // Partial load case not covered
-      failflag = 2;
-   }
+   int *reg = IS_IY ? &reg_iyh : &reg_ixh;
+   *reg = arg_imm;
    update_pc();
 }
 
@@ -1246,9 +1224,9 @@ static void op_load_imm8(InstrType *instr) {
 
 static void op_load_imm16(InstrType *instr) {
    if (prefix == 0xDD) {
-      reg_ix = arg_imm;
+      write_reg_pair1(ID_RR_IX, arg_imm);
    } else if (prefix == 0xFD) {
-      reg_iy = arg_imm;
+      write_reg_pair1(ID_RR_IY, arg_imm);
    } else {
       write_reg_pair1((opcode >> 4) & 3, arg_imm);
    }

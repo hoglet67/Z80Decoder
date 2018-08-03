@@ -395,7 +395,7 @@ static int read_reg_pair2(int id) {
       }
       break;
    case 3:
-      if (reg_a >= 0 && flag_s >= 0 && flag_z >= 0 && flag_f5 >= 0 && flag_h >= 0 && flag_f3 >= 0 && flag_pv >= 0 && flag_n >= 7 && flag_c >= 0) {
+      if (reg_a >= 0 && flag_s >= 0 && flag_z >= 0 && flag_f5 >= 0 && flag_h >= 0 && flag_f3 >= 0 && flag_pv >= 0 && flag_n >= 0 && flag_c >= 0) {
          return (reg_a << 8) | (flag_s << 7) | (flag_z << 6) | (flag_f5 << 5) | (flag_h << 4) | (flag_f3 << 3) | (flag_pv << 2) | (flag_n << 1) | flag_c;
       }
       break;

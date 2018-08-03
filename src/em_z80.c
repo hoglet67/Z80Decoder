@@ -1,5 +1,4 @@
 
-
 //
 // This file is based on part of the libsigrokdecode project.
 //
@@ -323,7 +322,7 @@ static void op_interrupt(InstrType *instr) {
 // ===================================================================
 
 static int get_r_id(int id) {
-   // If the prefix is 0xDD, any references to h/l are replaces by ixh/ixl
+   // If the prefix is 0xDD, references to h/l are replaced by ixh/ixl
    if (prefix == 0xdd) {
       if (id == ID_R_H) {
          id = ID_R_IXH;
@@ -332,7 +331,7 @@ static int get_r_id(int id) {
          id = ID_R_IXL;
       }
    }
-   // If the prefix is 0xDD, any references to h/l are replaces by iyh/iyl
+   // If the prefix is 0xFD, references to h/l are replaces bd iyh/iyl
    if (prefix == 0xfd) {
       if (id == ID_R_H) {
          id = ID_R_IYH;
@@ -352,7 +351,18 @@ static int get_rr_id() {
    // Opcode[5:4] = 1 => DE
    // Opcode[5:4] = 2 => SP
    // Opcode[5:4] = 3 => HL
-   return (prefix == 0xdd) ? ID_RR_IX : (prefix == 0xfd) ? ID_RR_IY : (opcode >> 4) & 3;
+   int id = (opcode >> 4) & 3;
+   if (id == ID_RR_HL) {
+      // If the prefix is 0xDD, references to hl are replaced by ix
+      if (prefix == 0xdd) {
+         id = ID_RR_IX;
+      }
+      // If the prefix is 0xFD, references to hl are replaced by iy
+      if (prefix == 0xfd) {
+         id = ID_RR_IY;
+      }
+   }
+   return id;
 }
 
 static int get_hl_or_idx_id() {
@@ -880,14 +890,33 @@ static void op_alu(InstrType *instr) {
    update_pc();
 }
 
+static void op_adc_hl_rr(InstrType *instr) {
+   int reg_id = get_rr_id();
+   int dst_id = get_hl_or_idx_id();
+   int op1 = read_reg_pair1(dst_id);
+   int op2 = read_reg_pair1(reg_id);
+   if (op1 < 0 || op2 < 0 || flag_c < 0) {
+      write_reg_pair1(dst_id, -1);
+      set_flags_undefined();
+   } else {
+      int result = op1 + op2 + flag_c;
+      int cbits = result ^ op1 ^ op2;
+      flag_c = (cbits >> 16) & 1;
+      flag_h = (cbits >> 12) & 1;
+      write_reg_pair1(dst_id, result & 0xffff);
+   }
+   flag_n = 0;
+   update_pc();
+}
+
 static void op_add_hl_rr(InstrType *instr) {
-   int reg_id = (opcode >> 4) & 3;
+   int reg_id = get_rr_id();
    int dst_id = get_hl_or_idx_id();
    int op1 = read_reg_pair1(dst_id);
    int op2 = read_reg_pair1(reg_id);
    if (op1 < 0 || op2 < 0) {
       write_reg_pair1(dst_id, -1);
-      set_flags_undefined();;
+      set_flags_undefined();
    } else {
       int result = op1 + op2;
       int cbits = result ^ op1 ^ op2;
@@ -1237,13 +1266,8 @@ static void op_load_imm8(InstrType *instr) {
 }
 
 static void op_load_imm16(InstrType *instr) {
-   if (prefix == 0xDD) {
-      write_reg_pair1(ID_RR_IX, arg_imm);
-   } else if (prefix == 0xFD) {
-      write_reg_pair1(ID_RR_IY, arg_imm);
-   } else {
-      write_reg_pair1((opcode >> 4) & 3, arg_imm);
-   }
+   int reg_id = get_rr_id();
+   write_reg_pair1(reg_id, arg_imm);
    update_pc();
 }
 
@@ -1287,36 +1311,10 @@ static void op_load_mem16(InstrType *instr) {
 
 static void op_store_mem16(InstrType *instr) {
    int reg_id = (opcode >> 4) & 3;
-   switch(reg_id) {
-   case 0:
-      if (reg_b >= 0 && reg_b != ((arg_write >> 8) & 0xff)) {
-         failflag = 1;
-      }
-      if (reg_c >= 0 && reg_c != (arg_write & 0xff)) {
-         failflag = 1;
-      }
-      break;
-   case 1:
-      if (reg_d >= 0 && reg_d != ((arg_write >> 8) & 0xff)) {
-         failflag = 1;
-      }
-      if (reg_e >= 0 && reg_e != (arg_write & 0xff)) {
-         failflag = 1;
-      }
-      break;
-   case 2:
-      if (reg_h >= 0 && reg_h != ((arg_write >> 8) & 0xff)) {
-         failflag = 1;
-      }
-      if (reg_l >= 0 && reg_l != (arg_write & 0xff)) {
-         failflag = 1;
-      }
-      break;
-   case 3:
-      if (reg_sp >= 0 && arg_write >> 8) {
-         failflag = 1;
-      }
-      break;
+   int reg = read_reg_pair1(reg_id);
+   if (reg >= 0 && reg != arg_write) {
+      failflag = 1;
+      write_reg_pair1(reg_id, arg_write);
    }
    update_pc();
 }
@@ -2027,7 +2025,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "LD I,A",            op_load_i_a     }, // 0x47
    {0, 0, 1, 0, False, TYPE_0, "IN C,(C)",          op_in_r_c       }, // 0x48
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),C",         op_out_c_r      }, // 0x49
-   {0, 0, 0, 0, False, TYPE_0, "ADC HL,BC",         op_NOT_IMPL     }, // 0x4A
+   {0, 0, 0, 0, False, TYPE_0, "ADC HL,BC",         op_adc_hl_rr    }, // 0x4A
    {0, 2, 2, 0, False, TYPE_8, "LD BC,(%04Xh)",     op_load_mem16   }, // 0x4B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x4C
    {0, 0, 2, 0, False, TYPE_0, "RETI",              op_NOT_IMPL     }, // 0x4D
@@ -2044,7 +2042,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "LD A,I",            op_load_a_i     }, // 0x57
    {0, 0, 1, 0, False, TYPE_0, "IN E,(C)",          op_in_r_c       }, // 0x58
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),E",         op_out_c_r      }, // 0x59
-   {0, 0, 0, 0, False, TYPE_0, "ADC HL,DE",         op_NOT_IMPL     }, // 0x5A
+   {0, 0, 0, 0, False, TYPE_0, "ADC HL,DE",         op_adc_hl_rr    }, // 0x5A
    {0, 2, 2, 0, False, TYPE_8, "LD DE,(%04Xh)",     op_load_mem16   }, // 0x5B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x5C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x5D
@@ -2061,7 +2059,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 1, 1, False, TYPE_0, "RRD",               op_NOT_IMPL     }, // 0x67
    {0, 0, 1, 0, False, TYPE_0, "IN L,(C)",          op_in_r_c       }, // 0x68
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),L",         op_out_c_r      }, // 0x69
-   {0, 0, 0, 0, False, TYPE_0, "ADC HL,HL",         op_NOT_IMPL     }, // 0x6A
+   {0, 0, 0, 0, False, TYPE_0, "ADC HL,HL",         op_adc_hl_rr    }, // 0x6A
    {0, 2, 2, 0, False, TYPE_8, "LD HL,(%04Xh)",     op_load_mem16   }, // 0x6B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x6C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x6D
@@ -2078,7 +2076,7 @@ InstrType extended_instructions[256] = {
    UNDEFINED,                                                          // 0x77
    {0, 0, 1, 0, False, TYPE_0, "IN A,(C)",          op_in_r_c       }, // 0x78
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),A",         op_out_c_r      }, // 0x79
-   {0, 0, 0, 0, False, TYPE_0, "ADC HL,SP",         op_NOT_IMPL     }, // 0x7A
+   {0, 0, 0, 0, False, TYPE_0, "ADC HL,SP",         op_adc_hl_rr    }, // 0x7A
    {0, 2, 2, 0, False, TYPE_8, "LD SP,(%04Xh)",     op_load_mem16   }, // 0x7B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x7C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x7D
@@ -2542,7 +2540,7 @@ InstrType index_instructions[256] = {
    {0, 1, 0, 0, False, TYPE_4, "LD %sh,%02Xh",      op_load_reg8    }, // 0x26
    UNDEFINED,                                                          // 0x27
    UNDEFINED,                                                          // 0x28
-   {0, 0, 0, 0, False, TYPE_2, "ADD %s,%s",         op_NOT_IMPL     }, // 0x29
+   {0, 0, 0, 0, False, TYPE_2, "ADD %s,%s",         op_add_hl_rr    }, // 0x29
    {0, 2, 2, 0, False, TYPE_4, "LD %s,(%04Xh)",     op_NOT_IMPL     }, // 0x2A
    {0, 0, 0, 0, False, TYPE_1, "DEC %s",            op_dec_rr       }, // 0x2B
    {0, 0, 0, 0, False, TYPE_1, "INC %sl",           op_inc_r        }, // 0x2C

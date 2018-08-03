@@ -1,4 +1,3 @@
-
 //
 // This file is based on part of the libsigrokdecode project.
 //
@@ -84,6 +83,7 @@ static int reg_iff2;
 static int reg_im;
 static int reg_i;
 static int reg_r;
+static int reg_memptr;
 
 #define IM_MODE_0    0
 #define IM_MODE_0_1  1
@@ -134,9 +134,9 @@ int *reg_ptr[] = {
 // Emulation output
 // ===================================================================
 
-static char buffer[80];
+static char buffer[100];
 
-static const char default_state[] = "A=?? F=???????? BC=???? DE=???? HL=???? IX=???? IY=???? IR=???? SP=????";
+static const char default_state[] = "A=?? F=???????? BC=???? DE=???? HL=???? IX=???? IY=???? IR=???? M=???? SP=????";
 
 #define OFFSET_A   2
 #define OFFSET_F   7
@@ -149,7 +149,8 @@ static const char default_state[] = "A=?? F=???????? BC=???? DE=???? HL=???? IX=
 #define OFFSET_IX 43
 #define OFFSET_IY 51
 #define OFFSET_IR 59
-#define OFFSET_SP 67
+#define OFFSET_M  66
+#define OFFSET_SP 74
 
 static void write_flag(char *buffer, int flag, int value) {
    *buffer = value ? flag : ' ';
@@ -236,6 +237,9 @@ char *z80_get_state() {
    if (reg_r >= 0) {
       write_hex2(buffer + OFFSET_IR + 2, reg_r);
    }
+   if (reg_memptr >= 0) {
+      write_hex4(buffer + OFFSET_M, reg_memptr);
+   }
    if (reg_sp >= 0) {
       write_hex4(buffer + OFFSET_SP, reg_sp);
    }
@@ -295,6 +299,7 @@ void z80_reset() {
    reg_ixl     = -1;
    reg_iyh     = -1;
    reg_iyl     = -1;
+   reg_memptr  = -1;
 }
 
 void z80_increment_r() {
@@ -302,23 +307,6 @@ void z80_increment_r() {
       reg_r = (reg_r + 1) & 0xff;
    }
 }
-
-static void op_interrupt(InstrType *instr) {
-   if (reg_pc >= 0 && arg_write != reg_pc) {
-      failflag = 1;
-   }
-   switch (reg_im) {
-   case IM_MODE_1:
-      reg_pc = 0x0038;
-      break;
-   default:
-      failflag = 2;
-   }
-   if (reg_sp >= 0) {
-      reg_sp = (reg_sp - 2) & 0xffff;
-   }
-}
-
 
 // ===================================================================
 // Emulation helper
@@ -558,6 +546,48 @@ static void update_pc() {
       reg_pc = (reg_pc + instr_len) & 0xffff;
    }
 }
+
+static void update_memptr(int addr) {
+   reg_memptr = addr;
+}
+
+static void update_memptr_inc(int addr) {
+   if (addr >= 0) {
+      reg_memptr = (addr + 1) & 0xffff;
+   } else {
+      reg_memptr = -1;
+   }
+}
+
+static void update_memptr_dec(int addr) {
+   if (addr >= 0) {
+      reg_memptr = (addr - 1) & 0xffff;
+   } else {
+      reg_memptr = -1;
+   }
+}
+
+static void update_memptr_inc_split(int hi, int lo) {
+   if (lo >= 0 && hi >= 0) {
+      reg_memptr = (hi << 8) | ((lo + 1) & 0xff);
+   } else {
+      reg_memptr = -1;
+   }
+}
+
+static void update_memptr_idx_disp() {
+   if (prefix == 0xdd || prefix == 0xfd || prefix == 0xddcb || prefix == 0xfdcb) {
+      int idx = read_reg_pair1((prefix == 0xfd || prefix == 0xfdcb) ? ID_RR_IY : ID_RR_IX);
+      if (idx >= 0) {
+         reg_memptr = (idx + arg_dis) & 0xffff;
+      } else {
+         reg_memptr = -1;
+      }
+   } else {
+      failflag = 3;
+   }
+}
+
 // ===================================================================
 // Emulated instructions
 // ===================================================================
@@ -571,6 +601,24 @@ static void op_nop(InstrType *instr) {
    update_pc();
 }
 
+static void op_interrupt(InstrType *instr) {
+   if (reg_pc >= 0 && arg_write != reg_pc) {
+      failflag = 1;
+   }
+   switch (reg_im) {
+   case IM_MODE_1:
+      reg_pc = 0x0038;
+      break;
+   default:
+      failflag = 2;
+   }
+   if (reg_sp >= 0) {
+      reg_sp = (reg_sp - 2) & 0xffff;
+   }
+   // Update undocumented memptr register
+   update_memptr(reg_pc);
+}
+
 // ===================================================================
 // Emulated instructions - Push/Pop
 // ===================================================================
@@ -578,15 +626,8 @@ static void op_nop(InstrType *instr) {
 static void op_push(InstrType *instr) {
    int reg_id = get_rr_id();
    int reg = read_reg_pair2(reg_id);
-   if (reg_id == ID_RR_AF) {
-      // For now, ignore flag bits 5 and 3
-      if (reg >= 0 && (reg & 0xD7) != (arg_write & 0xD7)) {
-         failflag = 1;
-      }
-   } else {
-      if (reg >= 0 && reg != arg_write) {
-         failflag = 1;
-      }
+   if (reg >= 0 && reg != arg_write) {
+      failflag = 1;
    }
    write_reg_pair2(reg_id, arg_write);
    if (reg_sp >= 0) {
@@ -674,6 +715,8 @@ static void op_call(InstrType *instr) {
    if (reg_sp >= 0) {
       reg_sp = (reg_sp - 2) & 0xffff;
    }
+   // Update undocumented memptr register
+   update_memptr(arg_imm);
 }
 
 static void op_call_cond(InstrType *instr) {
@@ -689,6 +732,8 @@ static void op_call_cond(InstrType *instr) {
       reg_pc = -1;
       reg_sp = -1;
    }
+   // Update undocumented memptr register
+   update_memptr(arg_imm);
 }
 
 static void op_ret(InstrType *instr) {
@@ -696,6 +741,8 @@ static void op_ret(InstrType *instr) {
    if (reg_sp >= 0) {
       reg_sp = (reg_sp + 2) & 0xffff;
    }
+   // Update undocumented memptr register
+   update_memptr(reg_pc);
 }
 
 static void op_ret_cond(InstrType *instr) {
@@ -711,6 +758,7 @@ static void op_ret_cond(InstrType *instr) {
       reg_pc = -1;
       reg_sp = -1;
    }
+   // TODO: undocumented memptr unclear
 }
 
 static void op_jr(InstrType *instr) {
@@ -721,19 +769,26 @@ static void op_jr(InstrType *instr) {
       update_pc();
       if (taken) {
          reg_pc = (reg_pc + arg_dis) & 0xffff;
+         // Update undocumented memptr register
+         update_memptr(reg_pc);
       }
    } else {
       reg_pc = -1;
+      // Update undocumented memptr register
+      update_memptr(-1);
    }
 }
 
 static void op_jp(InstrType *instr) {
    reg_pc = arg_imm;
+   // Update undocumented memptr register
+   update_memptr(arg_imm);
 }
 
 static void op_jp_hl(InstrType *instr) {
    int rr_id = get_hl_or_idx_id();
    reg_pc = read_reg_pair1(rr_id);
+   // Note: undocumented memptr does not change in this case
 }
 
 static void op_jp_cond(InstrType *instr) {
@@ -749,17 +804,27 @@ static void op_jp_cond(InstrType *instr) {
    } else {
       reg_pc = -1;
    }
+   // Update undocumented memptr register
+   update_memptr(arg_imm);
 }
 
 static void op_djnz(InstrType *instr) {
+   int taken = -1;
    if (reg_b >= 0) {
       reg_b = (reg_b - 1) & 0xff;
+      taken = (reg_b != 0);
+   }
+   if (taken >= 0 && reg_pc >= 0) {
       update_pc();
-      if (reg_b != 0) {
+      if (taken) {
          reg_pc = (reg_pc + arg_dis) & 0xffff;
+         // Update undocumented memptr register
+         update_memptr(reg_pc);
       }
    } else {
       reg_pc = -1;
+      // Update undocumented memptr register
+      update_memptr(-1);
    }
 }
 
@@ -773,6 +838,8 @@ static void op_rst(InstrType *instr) {
    if (reg_sp >= 0) {
       reg_sp = (reg_sp - 2) & 0xffff;
    }
+   // Update undocumented memptr register
+   update_memptr(reg_pc);
 }
 
 static void op_halt(InstrType *instr) {
@@ -787,11 +854,11 @@ static void op_alu(InstrType *instr) {
    int type    = (opcode >> 6) & 3;
    int alu_op  = (opcode >> 3) & 7;
    int operand;
+   int r_id = get_r_id(opcode & 7);
    if (type == 2) {
       // alu[y] r[z]
-      int r_id = get_r_id(opcode & 7);
       operand = *reg_ptr[r_id];
-   } else if (type == 3 && (opcode & 7) == 6) {
+   } else if (type == 3 && r_id == ID_MEMORY) {
       // alu[y] n
       operand = arg_imm;
    } else {
@@ -901,6 +968,10 @@ static void op_alu(InstrType *instr) {
       break;
    }
    update_pc();
+   // Update undocumented memptr register if (ix+disp) addressing used
+   if ((prefix == 0xdd || prefix == 0xfd) && r_id == ID_MEMORY) {
+      update_memptr_idx_disp();
+   }
 }
 
 static void op_neg(InstrType *instr) {
@@ -938,6 +1009,8 @@ static void op_adc_hl_rr(InstrType *instr) {
       write_reg_pair1(dst_id, result & 0xffff);
    }
    flag_n = 0;
+   // Update undocumented memptr register
+   update_memptr_inc(op1);
    update_pc();
 }
 
@@ -958,6 +1031,8 @@ static void op_sbc_hl_rr(InstrType *instr) {
       write_reg_pair1(dst_id, result & 0xffff);
    }
    flag_n = 0;
+   // Update undocumented memptr register
+   update_memptr_inc(op1);
    update_pc();
 }
 
@@ -979,6 +1054,8 @@ static void op_add_hl_rr(InstrType *instr) {
       write_reg_pair1(dst_id, result & 0xffff);
    }
    flag_n = 0;
+   // Update undocumented memptr register
+   update_memptr_inc(op1);
    update_pc();
 }
 
@@ -1022,6 +1099,8 @@ static void op_inc_idx_disp(InstrType *instr) {
       failflag = 1;
    }
    update_pc();
+   // Update undocumented memptr register
+   update_memptr_idx_disp();
 }
 
 static void op_dec_r(InstrType *instr) {
@@ -1063,6 +1142,8 @@ static void op_dec_idx_disp(InstrType *instr) {
       failflag = 1;
    }
    update_pc();
+   // Update undocumented memptr register
+   update_memptr_idx_disp();
 }
 
 // ===================================================================
@@ -1245,6 +1326,8 @@ static void op_ex_tos_hl(InstrType *instr) {
       failflag = 1;
    }
    write_reg_pair1(reg_id, arg_read);
+   // Update undocumented memptr register
+   update_memptr(arg_read);
    update_pc();
 }
 
@@ -1296,6 +1379,10 @@ static void op_load_reg8(InstrType *instr) {
       *dst = *src;
    }
    update_pc();
+   // Update undocumented memptr register if (ix+disp) addressing used
+   if ((prefix == 0xdd || prefix == 0xfd) && (dst_id == ID_MEMORY || src_id == ID_MEMORY)) {
+      update_memptr_idx_disp();
+   }
 }
 
 static void op_load_idx_disp(InstrType *instr) {
@@ -1303,6 +1390,8 @@ static void op_load_idx_disp(InstrType *instr) {
       failflag = 1;
    }
    update_pc();
+   // Update undocumented memptr register
+   update_memptr_idx_disp();
 }
 
 static void op_load_imm8(InstrType *instr) {
@@ -1329,13 +1418,9 @@ static void op_load_imm16(InstrType *instr) {
 static void op_load_a(InstrType *instr) {
    // EA = (BC) or (DE) or (nn)
    reg_a = arg_read;
-   update_pc();
-}
-
-static void op_load_hl(InstrType *instr) {
-   // EA = (nn)
-   int rr_id = get_hl_or_idx_id();
-   write_reg_pair1(rr_id, arg_read);
+   // Update undocumented memptr register
+   int rr_id = (opcode >> 4) & 3;
+   update_memptr_inc(rr_id < 2 ? read_reg_pair1(rr_id) : arg_imm);
    update_pc();
 }
 
@@ -1345,35 +1430,33 @@ static void op_store_a(InstrType *instr) {
       failflag = 1;
    }
    reg_a = arg_write;
+   // Update undocumented memptr register
+   int rr_id = (opcode >> 4) & 3;
+   update_memptr_inc_split(reg_a, rr_id < 2 ? read_reg_pair1(rr_id) : arg_imm);
    update_pc();
 }
 
-static void op_store_hl(InstrType *instr) {
-   // EA = (nn)
-   int rr_id = get_hl_or_idx_id();
+static void op_load_mem16(InstrType *instr) {
+   int reg_id = get_rr_id();
+   write_reg_pair1(reg_id, arg_read);
+   // Update undocumented memptr register
+   update_memptr_inc(arg_imm);
+   update_pc();
+}
+
+
+static void op_store_mem16(InstrType *instr) {
+   int rr_id = get_rr_id();
    int rr = read_reg_pair1(rr_id);
    if (rr >= 0 && rr != arg_write) {
       failflag = 1;
    }
    write_reg_pair1(rr_id, arg_write);
+   // Update undocumented memptr register
+   update_memptr_inc(arg_imm);
    update_pc();
 }
 
-static void op_load_mem16(InstrType *instr) {
-   int reg_id = (opcode >> 4) & 3;
-   write_reg_pair1(reg_id, arg_read);
-   update_pc();
-}
-
-static void op_store_mem16(InstrType *instr) {
-   int reg_id = (opcode >> 4) & 3;
-   int reg = read_reg_pair1(reg_id);
-   if (reg >= 0 && reg != arg_write) {
-      failflag = 1;
-      write_reg_pair1(reg_id, arg_write);
-   }
-   update_pc();
-}
 
 // ===================================================================
 // Emulated instructions - In/Out
@@ -1381,7 +1464,22 @@ static void op_store_mem16(InstrType *instr) {
 
 
 static void op_in_a_nn(InstrType *instr) {
+   // Update undocumented memptr register
+   // MEMPTR = (A_before_operation << 8) + port + 1
+   // TODO: this might be incorrect for port=0xff
+   update_memptr_inc_split(reg_a, arg_imm);
    reg_a = arg_read;
+   update_pc();
+}
+
+static void op_out_nn_a(InstrType *instr) {
+   // Update undocumented memptr register
+   // MEMPTR_low = (port + 1) & #FF,  MEMPTR_hi = A
+   update_memptr_inc_split(reg_a, arg_imm);
+   if (reg_a >= 0 && reg_a != arg_write) {
+      failflag = 1;
+   }
+   reg_a = arg_write;
    update_pc();
 }
 
@@ -1398,6 +1496,9 @@ static void op_in_r_c(InstrType *instr) {
    flag_n = 0;
    flag_pv = partab[result];
    update_pc();
+   // Update undocumented memptr register
+   int bc = read_reg_pair1(ID_RR_BC);
+   update_memptr_inc(bc);
 }
 
 static void op_out_c_r(InstrType *instr) {
@@ -1415,16 +1516,10 @@ static void op_out_c_r(InstrType *instr) {
       *reg = arg_write;
    }
    update_pc();
+   // Update undocumented memptr register
+   int bc = read_reg_pair1(ID_RR_BC);
+   update_memptr_inc(bc);
 }
-
-static void op_out_nn_a(InstrType *instr) {
-   if (reg_a >= 0 && reg_a != arg_write) {
-      failflag = 1;
-   }
-   reg_a = arg_write;
-   update_pc();
-}
-
 
 // ===================================================================
 // Emulated instructions - Block In/Out
@@ -1495,6 +1590,9 @@ static void op_outd(InstrType *instr) {
    if (flag_z == 1 || !repeat_op) {
       update_pc();
    }
+   // Update undocumented memptr registet
+   int bc = read_reg_pair1(ID_RR_BC);
+   update_memptr_dec(bc);
 }
 
 static void op_outi(InstrType *instr) {
@@ -1508,6 +1606,9 @@ static void op_outi(InstrType *instr) {
    if (flag_z == 1 || !repeat_op) {
       update_pc();
    }
+   // Update undocumented memptr registet
+   int bc = read_reg_pair1(ID_RR_BC);
+   update_memptr_inc(bc);
 }
 
 
@@ -1535,7 +1636,7 @@ static void op_ldd_ldi(InstrType *instr) {
    }
    // Set the flags, see: page 16 of http://www.z80.info/zip/z80-documented.pdf
    if (reg_a >= 0) {
-      int result = (reg_a + arg_write) & 0xffff;
+      int result = (reg_a + arg_read) & 0xff;
       flag_f5 = (result >> 1) & 1;
       flag_f3 = (result >> 3) & 1;
    } else {
@@ -1548,6 +1649,10 @@ static void op_ldd_ldi(InstrType *instr) {
       flag_pv = reg_b != 0 || reg_c != 0;
    } else {
       flag_pv = -1;
+   }
+   // Update undocumented memptr register
+   if (flag_pv == 1 && repeat_op) {
+      update_memptr_inc(reg_pc);
    }
    // TODO: Use cycles to infer termination
    if (flag_pv == 0 || !repeat_op) {
@@ -1678,6 +1783,28 @@ static void op_bit(InstrType *instr) {
          // BIT
          result = operand & (1 << minor_op);
          set_sign_zero(result);
+         if (operand == 0xcb && reg_id == ID_MEMORY) {
+            // Correct the f5 and f3 flags for BIT N,(HL)
+            if (reg_memptr >= 0) {
+               flag_f5 = (reg_memptr >> 13) & 1;
+               flag_f3 = (reg_memptr >> 11) & 1;
+            } else {
+               flag_f5 = -1;
+               flag_f3 = -1;
+            }
+         } else if (operand != 0xcb) {
+            // Correct the f5 and f3 flags for BIT N,(IX+D)
+            int rr_id = get_hl_or_idx_id();
+            int reg = read_reg_pair1(rr_id);
+            if (reg >= 0) {
+               reg += arg_dis;
+               flag_f5 = (reg >> 13) & 1;
+               flag_f3 = (reg >> 11) & 1;
+            } else {
+               flag_f5 = -1;
+               flag_f3 = -1;
+            }
+         }
          flag_h = 1;
          flag_n = 0;
          flag_pv = flag_z;
@@ -1704,6 +1831,10 @@ static void op_bit(InstrType *instr) {
       }
    }
    update_pc();
+   // Update undocumented memptr register if (ix+disp) addressing used
+   if (prefix == 0xddcb || prefix == 0xfdcb || ((prefix == 0xdd || prefix == 0xfd) && reg_id == ID_MEMORY)) {
+      update_memptr_idx_disp();
+   }
 }
 
 //Instruction tuple: (d, i, ro, wo, conditional, format type, format string, emulate method)
@@ -1764,7 +1895,7 @@ InstrType main_instructions[256] = {
 
    {1, 0, 0, 0, False, TYPE_7, "JR NZ,%s",          op_jr           }, // 0x20
    {0, 2, 0, 0, False, TYPE_8, "LD HL,%04Xh",       op_load_imm16   }, // 0x21
-   {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),HL",     op_store_hl     }, // 0x22
+   {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),HL",     op_store_mem16  }, // 0x22
    {0, 0, 0, 0, False, TYPE_0, "INC HL",            op_inc_rr       }, // 0x23
    {0, 0, 0, 0, False, TYPE_0, "INC H",             op_inc_r        }, // 0x24
    {0, 0, 0, 0, False, TYPE_0, "DEC H",             op_dec_r        }, // 0x25
@@ -1772,7 +1903,7 @@ InstrType main_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "DAA",               op_misc_daa     }, // 0x27
    {1, 0, 0, 0, False, TYPE_7, "JR Z,%s",           op_jr           }, // 0x28
    {0, 0, 0, 0, False, TYPE_0, "ADD HL,HL",         op_add_hl_rr    }, // 0x29
-   {0, 2, 2, 0, False, TYPE_8, "LD HL,(%04Xh)",     op_load_hl      }, // 0x2A
+   {0, 2, 2, 0, False, TYPE_8, "LD HL,(%04Xh)",     op_load_mem16   }, // 0x2A
    {0, 0, 0, 0, False, TYPE_0, "DEC HL",            op_dec_rr       }, // 0x2B
    {0, 0, 0, 0, False, TYPE_0, "INC L",             op_inc_r        }, // 0x2C
    {0, 0, 0, 0, False, TYPE_0, "DEC L",             op_dec_r        }, // 0x2D
@@ -2084,7 +2215,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,BC",         op_adc_hl_rr    }, // 0x4A
    {0, 2, 2, 0, False, TYPE_8, "LD BC,(%04Xh)",     op_load_mem16   }, // 0x4B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x4C
-   {0, 0, 2, 0, False, TYPE_0, "RETI",              op_NOT_IMPL     }, // 0x4D
+   {0, 0, 2, 0, False, TYPE_0, "RETI",              op_NOT_IMPL     }, // 0x4D - TODO: this affects memptr
    {0, 0, 0, 0, False, TYPE_0, "IM 0/1",            op_im           }, // 0x4E
    {0, 0, 0, 0, False, TYPE_0, "LD R,A",            op_load_r_a     }, // 0x4F
 
@@ -2112,7 +2243,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x64
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x65
    {0, 0, 0, 0, False, TYPE_0, "IM 0",              op_im           }, // 0x66
-   {0, 0, 1, 1, False, TYPE_0, "RRD",               op_NOT_IMPL     }, // 0x67
+   {0, 0, 1, 1, False, TYPE_0, "RRD",               op_NOT_IMPL     }, // 0x67 - TODO: this affects memptr
    {0, 0, 1, 0, False, TYPE_0, "IN L,(C)",          op_in_r_c       }, // 0x68
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),L",         op_out_c_r      }, // 0x69
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,HL",         op_adc_hl_rr    }, // 0x6A
@@ -2120,7 +2251,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x6C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x6D
    {0, 0, 0, 0, False, TYPE_0, "IM 0/1",            op_im           }, // 0x6E
-   {0, 0, 1, 1, False, TYPE_0, "RLD",               op_NOT_IMPL     }, // 0x6F
+   {0, 0, 1, 1, False, TYPE_0, "RLD",               op_NOT_IMPL     }, // 0x6F - TODO: this affects memptr
 
    {0, 0, 1, 0, False, TYPE_0, "IN (C)",            op_in_r_c       }, // 0x70
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),0",         op_out_c_r      }, // 0x71
@@ -2174,16 +2305,16 @@ InstrType extended_instructions[256] = {
    UNDEFINED,                                                          // 0x9F
 
    {0, 0, 1, 1, False, TYPE_0, "LDI",               op_ldd_ldi      }, // 0xA0
-   {0, 0, 1, 0, False, TYPE_0, "CPI",               op_NOT_IMPL     }, // 0xA1
-   {0, 0, 1, 1, False, TYPE_0, "INI",               op_NOT_IMPL     }, // 0xA2
+   {0, 0, 1, 0, False, TYPE_0, "CPI",               op_NOT_IMPL     }, // 0xA1 - TODO: this affects memptr
+   {0, 0, 1, 1, False, TYPE_0, "INI",               op_NOT_IMPL     }, // 0xA2 - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "OUTI",              op_outi         }, // 0xA3
    UNDEFINED,                                                          // 0xA4
    UNDEFINED,                                                          // 0xA5
    UNDEFINED,                                                          // 0xA6
    UNDEFINED,                                                          // 0xA7
    {0, 0, 1, 1, False, TYPE_0, "LDD",               op_ldd_ldi      }, // 0xA8
-   {0, 0, 1, 0, False, TYPE_0, "CPD",               op_NOT_IMPL     }, // 0xA9
-   {0, 0, 1, 1, False, TYPE_0, "IND",               op_NOT_IMPL     }, // 0xAA
+   {0, 0, 1, 0, False, TYPE_0, "CPD",               op_NOT_IMPL     }, // 0xA9 - TODO: this affects memptr
+   {0, 0, 1, 1, False, TYPE_0, "IND",               op_NOT_IMPL     }, // 0xAA - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "OUTD",              op_outd         }, // 0xAB
    UNDEFINED,                                                          // 0xAC
    UNDEFINED,                                                          // 0xAD
@@ -2191,16 +2322,16 @@ InstrType extended_instructions[256] = {
    UNDEFINED,                                                          // 0xAF
 
    {0, 0, 1, 1, False, TYPE_0, "LDIR",              op_ldd_ldi      }, // 0xB0
-   {0, 0, 1, 0, False, TYPE_0, "CPIR",              op_NOT_IMPL     }, // 0xB1
-   {0, 0, 1, 1, False, TYPE_0, "INIR",              op_NOT_IMPL     }, // 0xB2
+   {0, 0, 1, 0, False, TYPE_0, "CPIR",              op_NOT_IMPL     }, // 0xB1 - TODO: this affects memptr
+   {0, 0, 1, 1, False, TYPE_0, "INIR",              op_NOT_IMPL     }, // 0xB2 - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "OTIR",              op_outi         }, // 0xB3
    UNDEFINED,                                                          // 0xB4
    UNDEFINED,                                                          // 0xB5
    UNDEFINED,                                                          // 0xB6
    UNDEFINED,                                                          // 0xB7
    {0, 0, 1, 1, False, TYPE_0, "LDDR",              op_ldd_ldi      }, // 0xB8
-   {0, 0, 1, 0, False, TYPE_0, "CPDR",              op_NOT_IMPL     }, // 0xB9
-   {0, 0, 1, 1, False, TYPE_0, "INDR",              op_NOT_IMPL     }, // 0xBA
+   {0, 0, 1, 0, False, TYPE_0, "CPDR",              op_NOT_IMPL     }, // 0xB9 - TODO: this affects memptr
+   {0, 0, 1, 1, False, TYPE_0, "INDR",              op_NOT_IMPL     }, // 0xBA - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "OTDR",              op_outd         }, // 0xBB
    UNDEFINED,                                                          // 0xBC
    UNDEFINED,                                                          // 0xBD
@@ -2589,7 +2720,7 @@ InstrType index_instructions[256] = {
 
    UNDEFINED,                                                          // 0x20
    {0, 2, 0, 0, False, TYPE_4, "LD %s,%04Xh",       op_load_imm16   }, // 0x21
-   {0, 2, 0, 2, False, TYPE_3, "LD (%04Xh),%s",     op_store_hl     }, // 0x22
+   {0, 2, 0, 2, False, TYPE_3, "LD (%04Xh),%s",     op_store_mem16  }, // 0x22
    {0, 0, 0, 0, False, TYPE_1, "INC %s",            op_inc_rr       }, // 0x23
    {0, 0, 0, 0, False, TYPE_1, "INC %sh",           op_inc_r        }, // 0x24
    {0, 0, 0, 0, False, TYPE_1, "DEC %sh",           op_dec_r        }, // 0x25
@@ -2597,7 +2728,7 @@ InstrType index_instructions[256] = {
    UNDEFINED,                                                          // 0x27
    UNDEFINED,                                                          // 0x28
    {0, 0, 0, 0, False, TYPE_2, "ADD %s,%s",         op_add_hl_rr    }, // 0x29
-   {0, 2, 2, 0, False, TYPE_4, "LD %s,(%04Xh)",     op_load_hl      }, // 0x2A
+   {0, 2, 2, 0, False, TYPE_4, "LD %s,(%04Xh)",     op_load_mem16   }, // 0x2A
    {0, 0, 0, 0, False, TYPE_1, "DEC %s",            op_dec_rr       }, // 0x2B
    {0, 0, 0, 0, False, TYPE_1, "INC %sl",           op_inc_r        }, // 0x2C
    {0, 0, 0, 0, False, TYPE_1, "DEC %sl",           op_dec_r        }, // 0x2D

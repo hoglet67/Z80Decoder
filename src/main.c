@@ -743,9 +743,11 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
                printf("%s", z80_get_state());
                if (failflag) {
                   if (failflag == 2) {
-                     printf(": not implemeted");
+                     printf(" : not implemented");
+                  } if (failflag == 3) {
+                     printf(" : implementation error");
                   } else {
-                     printf(": fail");
+                     printf(" : fail");
                   }
                }
                colon = 1;

@@ -1123,8 +1123,6 @@ static void op_misc_rotate(InstrType *instr) {
       }
       if (result >= 0) {
          result &= 0xff;
-         set_sign_zero(result);
-         flag_pv = partab[result];
          reg_a = result;
       } else {
          set_flags_undefined();

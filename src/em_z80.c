@@ -96,6 +96,8 @@ static int reg_im;
 #define ID_RR_HL 2
 #define ID_RR_SP 3 // For "pair1" functions
 #define ID_RR_AF 3 // For "pair2" functions
+#define ID_RR_IX 4
+#define ID_RR_IY 5
 
 int *reg_ptr[] = {
    &reg_b,
@@ -305,6 +307,7 @@ static void set_flags_undefined() {
    flag_c  = -1;
 }
 
+   // Cases 4 and 5 are used for 0xDD and 0xFD prefixed operations
 static int read_reg_pair1(int id) {
    switch(id) {
    case 0:
@@ -324,11 +327,16 @@ static int read_reg_pair1(int id) {
       break;
    case 3:
       return reg_sp;
+   case 4:
+      return reg_ix;
+   case 5:
+      return reg_iy;
    }
    return -1;
 }
 
 static void write_reg_pair1(int id, int value) {
+   // Cases 4 and 5 are used for 0xDD and 0xFD prefixed operations
    switch(id) {
    case 0:
       if (value >= 0) {
@@ -360,6 +368,12 @@ static void write_reg_pair1(int id, int value) {
    case 3:
       reg_sp = value;
       break;
+   case 4:
+      reg_ix = value;
+      break;
+   case 5:
+      reg_iy = value;
+      break;
    }
 }
 
@@ -385,6 +399,10 @@ static int read_reg_pair2(int id) {
          return (reg_a << 8) | (flag_s << 7) | (flag_z << 6) | (flag_f5 << 5) | (flag_h << 4) | (flag_f3 << 3) | (flag_pv << 2) | (flag_n << 1) | flag_c;
       }
       break;
+   case 4:
+      return reg_ix;
+   case 5:
+      return reg_iy;
    }
    return -1;
 }
@@ -434,6 +452,12 @@ static void write_reg_pair2(int id, int value) {
          set_flags_undefined();
       }
       reg_sp = value;
+      break;
+   case 4:
+      reg_ix = value;
+      break;
+   case 5:
+      reg_iy = value;
       break;
    }
 }
@@ -797,19 +821,31 @@ static void op_alu(InstrType *instr) {
    update_pc();
 }
 
+
+static int hl_or_idx() {
+   if (prefix == 0xdd) {
+      return ID_RR_IX;
+   }
+   if (prefix == 0xfd) {
+      return ID_RR_IY;
+   }
+   return ID_RR_HL;
+}
+
 static void op_add_hl_rr(InstrType *instr) {
    int reg_id = (opcode >> 4) & 3;
-   int op1 = read_reg_pair1(ID_RR_HL);
+   int dst_id = hl_or_idx();
+   int op1 = read_reg_pair1(dst_id);
    int op2 = read_reg_pair1(reg_id);
    if (op1 < 0 || op2 < 0) {
-      write_reg_pair1(ID_RR_HL, -1);
+      write_reg_pair1(dst_id, -1);
       set_flags_undefined();;
    } else {
       int result = op1 + op2;
       int cbits = result ^ op1 ^ op2;
       flag_c = (cbits >> 16) & 1;
       flag_h = (cbits >> 12) & 1;
-      write_reg_pair1(ID_RR_HL, result & 0xffff);
+      write_reg_pair1(dst_id, result & 0xffff);
    }
    flag_n = 0;
    update_pc();
@@ -2452,7 +2488,7 @@ InstrType index_instructions[256] = {
    UNDEFINED,                                                          // 0x06
    UNDEFINED,                                                          // 0x07
    UNDEFINED,                                                          // 0x08
-   {0, 0, 0, 0, False, TYPE_1, "ADD %s,BC",         op_NOT_IMPL     }, // 0x09
+   {0, 0, 0, 0, False, TYPE_1, "ADD %s,BC",         op_add_hl_rr    }, // 0x09
    UNDEFINED,                                                          // 0x0A
    UNDEFINED,                                                          // 0x0B
    UNDEFINED,                                                          // 0x0C
@@ -2469,7 +2505,7 @@ InstrType index_instructions[256] = {
    UNDEFINED,                                                          // 0x16
    UNDEFINED,                                                          // 0x17
    UNDEFINED,                                                          // 0x18
-   {0, 0, 0, 0, False, TYPE_1, "ADD %s,DE",         op_NOT_IMPL     }, // 0x19
+   {0, 0, 0, 0, False, TYPE_1, "ADD %s,DE",         op_add_hl_rr    }, // 0x19
    UNDEFINED,                                                          // 0x1A
    UNDEFINED,                                                          // 0x1B
    UNDEFINED,                                                          // 0x1C
@@ -2503,7 +2539,7 @@ InstrType index_instructions[256] = {
    {1, 1, 0, 1, False, TYPE_6, "LD (%s%+d),%02xh",  op_load_idx_disp },// 0x36
    UNDEFINED,                                                          // 0x37
    UNDEFINED,                                                          // 0x38
-   {0, 0, 0, 0, False, TYPE_1, "ADD %s,SP",         op_NOT_IMPL     }, // 0x39
+   {0, 0, 0, 0, False, TYPE_1, "ADD %s,SP",         op_add_hl_rr    }, // 0x39
    UNDEFINED,                                                          // 0x3A
    UNDEFINED,                                                          // 0x3B
    UNDEFINED,                                                          // 0x3C

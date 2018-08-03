@@ -306,6 +306,13 @@ static void set_sign_zero(int result) {
    flag_f3 = (result >> 3) & 1;
 }
 
+static void set_sign_zero2(int result, int operand) {
+   flag_s  = (result >> 7) & 1;
+   flag_z  = ((result & 0xff) == 0);
+   flag_f5 = (operand >> 5) & 1;
+   flag_f3 = (operand >> 3) & 1;
+}
+
 static void set_flags_undefined() {
    flag_s  = -1;
    flag_z  = -1;
@@ -474,17 +481,12 @@ static void op_nop(InstrType *instr) {
 // ===================================================================
 
 static void op_push(InstrType *instr) {
-   int reg;
-   if (prefix == 0xDD) {
-      reg = read_reg_pair2(ID_RR_IX);
-   } else if (prefix == 0xFD) {
-      reg = read_reg_pair2(ID_RR_IY);
-   } else {
-      reg = read_reg_pair2((opcode >> 4) & 3);
-   }
+   int reg_id = (prefix == 0xdd) ? ID_RR_IX : (prefix == 0xfd) ? ID_RR_IY : (opcode >> 4) & 3;
+   int reg = read_reg_pair2(reg_id);
    if (reg >= 0 && reg != arg_write) {
       failflag = 1;
    }
+   write_reg_pair2(reg_id, arg_write);
    if (reg_sp >= 0) {
       reg_sp = (reg_sp - 2) & 0xffff;
    }
@@ -492,13 +494,8 @@ static void op_push(InstrType *instr) {
 }
 
 static void op_pop(InstrType *instr) {
-   if (prefix == 0xDD) {
-      write_reg_pair2(ID_RR_IX, arg_read);
-   } else if (prefix == 0xFD) {
-      write_reg_pair2(ID_RR_IY, arg_read);
-   } else {
-      write_reg_pair2((opcode >> 4) & 3, arg_read);
-   }
+   int reg_id = (prefix == 0xdd) ? ID_RR_IX : (prefix == 0xfd) ? ID_RR_IY : (opcode >> 4) & 3;
+   write_reg_pair2(reg_id, arg_read);
    if (reg_sp >= 0) {
       reg_sp = (reg_sp + 2) & 0xffff;
    }
@@ -788,7 +785,7 @@ static void op_alu(InstrType *instr) {
       // CP
       if (reg_a >= 0 && operand >= 0) {
          result  = reg_a - operand;
-         set_sign_zero(result); // TODO: f5 and f3 should be set from operand
+         set_sign_zero2(result, operand);
          cbits   = reg_a ^ operand ^ result;
          flag_c  = (cbits >> 8) & 1;
          flag_h  = (cbits >> 4) & 1;
@@ -1445,15 +1442,24 @@ static void op_ldd_ldi(InstrType *instr) {
       block_increment_de();
       block_increment_hl();
    }
+   // Set the flags, see: page 16 of http://www.z80.info/zip/z80-documented.pdf
+   if (reg_a >= 0) {
+      int result = (reg_a + arg_write) & 0xffff;
+      flag_f5 = (result >> 1) & 1;
+      flag_f3 = (result >> 3) & 1;
+   } else {
+      flag_f5 = -1;
+      flag_f3 = -1;
+   }
    flag_h = 0;
    flag_n = 0;
    if (reg_b >= 0 && reg_c >= 0) {
-      flag_pv = reg_b == 0 && reg_c == 0;
+      flag_pv = reg_b != 0 || reg_c != 0;
    } else {
       flag_pv = -1;
    }
    // TODO: Use cycles to infer termination
-   if (flag_pv == 1 || !repeat_op) {
+   if (flag_pv == 0 || !repeat_op) {
       update_pc();
    }
 }

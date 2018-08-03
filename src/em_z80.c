@@ -295,8 +295,6 @@ void z80_reset() {
 // Emulation helper
 // ===================================================================
 
-#define IS_IY (prefix == 0xFD || prefix == 0xFDCB)
-
 static int get_r_id(int id) {
    // If the prefix is 0xDD, any references to h/l are replaces by ixh/ixl
    if (prefix == 0xdd) {
@@ -330,7 +328,7 @@ static int get_rr_id() {
    return (prefix == 0xdd) ? ID_RR_IX : (prefix == 0xfd) ? ID_RR_IY : (opcode >> 4) & 3;
 }
 
-static int get_hl_idx_id() {
+static int get_hl_or_idx_id() {
    // Prefix = 0xDD   => IX
    // Prefix = 0xFD   => IY
    // Otherwise       => HL
@@ -686,8 +684,8 @@ static void op_jp(InstrType *instr) {
    reg_pc = arg_imm;
 }
 
-static void op_jp_rr(InstrType *instr) {
-   int rr_id = get_rr_id();
+static void op_jp_hl(InstrType *instr) {
+   int rr_id = get_hl_or_idx_id();
    reg_pc = read_reg_pair1(rr_id);
 }
 
@@ -857,7 +855,7 @@ static void op_alu(InstrType *instr) {
 
 static void op_add_hl_rr(InstrType *instr) {
    int reg_id = (opcode >> 4) & 3;
-   int dst_id = get_hl_idx_id();
+   int dst_id = get_hl_or_idx_id();
    int op1 = read_reg_pair1(dst_id);
    int op2 = read_reg_pair1(reg_id);
    if (op1 < 0 || op2 < 0) {
@@ -1130,26 +1128,14 @@ static void op_ex_de_hl(InstrType *instr) {
 }
 
 static void op_ex_tos_hl(InstrType *instr) {
-   // (SP) <=> L; (SP + 1) <=> H
-   if (reg_h >= 0 && reg_h != ((arg_write >> 8) & 0xff)) {
+   // (SP) <=> register L; (SP + 1) <=> register H
+   // register is HL, IDX or IDY
+   int reg_id = get_hl_or_idx_id();
+   int reg = read_reg_pair1(reg_id);
+   if (reg >= 0 && reg != arg_write) {
       failflag = 1;
    }
-   reg_h = (arg_read >> 8) & 0xff;
-   if (reg_l >= 0 && reg_l != (arg_write & 0xff)) {
-      failflag = 1;
-   }
-   reg_l = arg_read & 0xff;
-   update_pc();
-}
-
-static void op_ex_tos_index(InstrType *instr) {
-   // (SP) <=> Index_low; (SP + 1) <=> Index_high
-   int id = IS_IY ? ID_RR_IY : ID_RR_IX;
-   int idx = read_reg_pair1(id);
-   if (idx >= 0 && idx != arg_write) {
-      failflag = 1;
-   }
-   write_reg_pair1(id, arg_read);
+   write_reg_pair1(reg_id, arg_read);
    update_pc();
 }
 
@@ -1868,7 +1854,7 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 0, False, TYPE_8, "AND %02Xh",         op_alu          }, // 0xE6
    {0, 0, 0,-2, False, TYPE_0, "RST 20h",           op_rst          }, // 0xE7
    {0, 0, 2, 0, True,  TYPE_0, "RET PE",            op_ret_cond     }, // 0xE8
-   {0, 0, 0, 0, False, TYPE_0, "JP (HL)",           op_jp_rr        }, // 0xE9
+   {0, 0, 0, 0, False, TYPE_0, "JP (HL)",           op_jp_hl        }, // 0xE9
    {0, 2, 0, 0, False, TYPE_8, "JP PE,%04Xh",       op_jp_cond      }, // 0xEA
    {0, 0, 0, 0, False, TYPE_0, "EX DE,HL",          op_ex_de_hl     }, // 0xEB
    {0, 2, 0,-2, True,  TYPE_8, "CALL PE,%04Xh",     op_call_cond    }, // 0xEC
@@ -2687,13 +2673,13 @@ InstrType index_instructions[256] = {
    UNDEFINED,                                                          // 0xE0
    {0, 0, 2, 0, False, TYPE_1, "POP %s",            op_pop          }, // 0xE1
    UNDEFINED,                                                          // 0xE2
-   {0, 0, 2,-2, False, TYPE_1, "EX (SP),%s",        op_ex_tos_index }, // 0xE3
+   {0, 0, 2,-2, False, TYPE_1, "EX (SP),%s",        op_ex_tos_hl    }, // 0xE3
    UNDEFINED,                                                          // 0xE4
    {0, 0, 0,-2, False, TYPE_1, "PUSH %s",           op_push         }, // 0xE5
    UNDEFINED,                                                          // 0xE6
    UNDEFINED,                                                          // 0xE7
    UNDEFINED,                                                          // 0xE8
-   {0, 0, 0, 0, False, TYPE_1, "JP (%s)",           op_jp_rr        }, // 0xE9
+   {0, 0, 0, 0, False, TYPE_1, "JP (%s)",           op_jp_hl        }, // 0xE9
    UNDEFINED,                                                          // 0xEA
    UNDEFINED,                                                          // 0xEB
    UNDEFINED,                                                          // 0xEC

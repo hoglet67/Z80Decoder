@@ -1220,7 +1220,8 @@ static void op_load_r_a(InstrType *instr) {
 }
 
 static void op_load_sp_hl(InstrType *instr) {
-   reg_sp = read_reg_pair1(ID_RR_HL);
+   int rr_id = get_hl_or_idx_id();
+   reg_sp = read_reg_pair1(rr_id);
    update_pc();
 }
 
@@ -1280,7 +1281,8 @@ static void op_load_a(InstrType *instr) {
 
 static void op_load_hl(InstrType *instr) {
    // EA = (nn)
-   write_reg_pair1(ID_RR_HL, arg_read);
+   int rr_id = get_hl_or_idx_id();
+   write_reg_pair1(rr_id, arg_read);
    update_pc();
 }
 
@@ -1295,11 +1297,12 @@ static void op_store_a(InstrType *instr) {
 
 static void op_store_hl(InstrType *instr) {
    // EA = (nn)
-   int hl = read_reg_pair1(ID_RR_HL);
-   if (hl >= 0 && hl != arg_write) {
+   int rr_id = get_hl_or_idx_id();
+   int rr = read_reg_pair1(rr_id);
+   if (rr >= 0 && rr != arg_write) {
       failflag = 1;
    }
-   write_reg_pair1(ID_RR_HL, arg_write);
+   write_reg_pair1(rr_id, arg_write);
    update_pc();
 }
 
@@ -1936,7 +1939,7 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 0, False, TYPE_8, "OR %02Xh",          op_alu          }, // 0xF6
    {0, 0, 0,-2, False, TYPE_0, "RST 30h",           op_rst          }, // 0xF7
    {0, 0, 2, 0, True,  TYPE_0, "RET M",             op_ret_cond     }, // 0xF8
-   {0, 0, 0, 0, False, TYPE_0, "LD SP,HL",          op_load_sp_hl   }, // 0xF9
+   {0, 0, 0, 0, False, TYPE_0, "LD SP,HL",          op_load_sp_hl  }, // 0xF9
    {0, 2, 0, 0, False, TYPE_8, "JP M,%04Xh",        op_jp_cond      }, // 0xFA
    {0, 0, 0, 0, False, TYPE_0, "EI",                op_ei           }, // 0xFB
    {0, 2, 0,-2, True,  TYPE_8, "CALL M,%04Xh",      op_call_cond    }, // 0xFC
@@ -2533,7 +2536,7 @@ InstrType index_instructions[256] = {
 
    UNDEFINED,                                                          // 0x20
    {0, 2, 0, 0, False, TYPE_4, "LD %s,%04Xh",       op_load_imm16   }, // 0x21
-   {0, 2, 0, 2, False, TYPE_3, "LD (%04Xh),%s",     op_NOT_IMPL     }, // 0x22
+   {0, 2, 0, 2, False, TYPE_3, "LD (%04Xh),%s",     op_store_hl     }, // 0x22
    {0, 0, 0, 0, False, TYPE_1, "INC %s",            op_inc_rr       }, // 0x23
    {0, 0, 0, 0, False, TYPE_1, "INC %sh",           op_inc_r        }, // 0x24
    {0, 0, 0, 0, False, TYPE_1, "DEC %sh",           op_dec_r        }, // 0x25
@@ -2541,7 +2544,7 @@ InstrType index_instructions[256] = {
    UNDEFINED,                                                          // 0x27
    UNDEFINED,                                                          // 0x28
    {0, 0, 0, 0, False, TYPE_2, "ADD %s,%s",         op_add_hl_rr    }, // 0x29
-   {0, 2, 2, 0, False, TYPE_4, "LD %s,(%04Xh)",     op_NOT_IMPL     }, // 0x2A
+   {0, 2, 2, 0, False, TYPE_4, "LD %s,(%04Xh)",     op_load_hl      }, // 0x2A
    {0, 0, 0, 0, False, TYPE_1, "DEC %s",            op_dec_rr       }, // 0x2B
    {0, 0, 0, 0, False, TYPE_1, "INC %sl",           op_inc_r        }, // 0x2C
    {0, 0, 0, 0, False, TYPE_1, "DEC %sl",           op_dec_r        }, // 0x2D
@@ -2761,7 +2764,7 @@ InstrType index_instructions[256] = {
    UNDEFINED,                                                          // 0xF7
    UNDEFINED,                                                          // 0xF7
    UNDEFINED,                                                          // 0xF8
-   {0, 0, 0, 0, False, TYPE_1, "LD SP,%s",          op_NOT_IMPL     }, // 0xF9
+   {0, 0, 0, 0, False, TYPE_1, "LD SP,%s",          op_load_sp_hl   }, // 0xF9
    UNDEFINED,                                                          // 0xFA
    UNDEFINED,                                                          // 0xFB
    UNDEFINED,                                                          // 0xFC

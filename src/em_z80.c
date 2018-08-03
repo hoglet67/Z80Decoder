@@ -892,7 +892,8 @@ static void op_alu(InstrType *instr) {
 
 static void op_adc_hl_rr(InstrType *instr) {
    int reg_id = get_rr_id();
-   int dst_id = get_hl_or_idx_id();
+   // This only appears in the ED block, hence uses just hl as the destination
+   int dst_id = ID_RR_HL;
    int op1 = read_reg_pair1(dst_id);
    int op2 = read_reg_pair1(reg_id);
    if (op1 < 0 || op2 < 0 || flag_c < 0) {
@@ -909,8 +910,30 @@ static void op_adc_hl_rr(InstrType *instr) {
    update_pc();
 }
 
+static void op_sbc_hl_rr(InstrType *instr) {
+   int reg_id = get_rr_id();
+   // This only appears in the ED block, hence uses just hl as the destination
+   int dst_id = ID_RR_HL;
+   int op1 = read_reg_pair1(dst_id);
+   int op2 = read_reg_pair1(reg_id);
+   if (op1 < 0 || op2 < 0 || flag_c < 0) {
+      write_reg_pair1(dst_id, -1);
+      set_flags_undefined();
+   } else {
+      int result = op1 - op2 - flag_c;
+      int cbits = result ^ op1 ^ op2;
+      flag_c = (cbits >> 16) & 1;
+      flag_h = (cbits >> 12) & 1;
+      write_reg_pair1(dst_id, result & 0xffff);
+   }
+   flag_n = 0;
+   update_pc();
+}
+
+
 static void op_add_hl_rr(InstrType *instr) {
    int reg_id = get_rr_id();
+   // This appears in the unprefixed and DD/FD blocks, so the destination can be hl or ix/iy
    int dst_id = get_hl_or_idx_id();
    int op1 = read_reg_pair1(dst_id);
    int op2 = read_reg_pair1(reg_id);
@@ -927,6 +950,7 @@ static void op_add_hl_rr(InstrType *instr) {
    flag_n = 0;
    update_pc();
 }
+
 
 static void op_inc_r(InstrType *instr) {
    int reg_id = get_r_id((opcode >> 3) & 7);
@@ -2020,7 +2044,7 @@ InstrType extended_instructions[256] = {
 
    {0, 0, 1, 0, False, TYPE_0, "IN B,(C)",          op_in_r_c       }, // 0x40
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),B",         op_out_c_r      }, // 0x41
-   {0, 0, 0, 0, False, TYPE_0, "SBC HL,BC",         op_NOT_IMPL     }, // 0x42
+   {0, 0, 0, 0, False, TYPE_0, "SBC HL,BC",         op_sbc_hl_rr    }, // 0x42
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),BC",     op_store_mem16  }, // 0x43
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x44
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x45
@@ -2037,7 +2061,7 @@ InstrType extended_instructions[256] = {
 
    {0, 0, 1, 0, False, TYPE_0, "IN D,(C)",          op_in_r_c       }, // 0x50
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),D",         op_out_c_r      }, // 0x51
-   {0, 0, 0, 0, False, TYPE_0, "SBC HL,DE",         op_NOT_IMPL     }, // 0x52
+   {0, 0, 0, 0, False, TYPE_0, "SBC HL,DE",         op_sbc_hl_rr    }, // 0x52
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),DE",     op_store_mem16  }, // 0x53
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x54
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x55
@@ -2054,7 +2078,7 @@ InstrType extended_instructions[256] = {
 
    {0, 0, 1, 0, False, TYPE_0, "IN H,(C)",          op_in_r_c       }, // 0x60
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),H",         op_out_c_r      }, // 0x61
-   {0, 0, 0, 0, False, TYPE_0, "SBC HL,HL",         op_NOT_IMPL     }, // 0x62
+   {0, 0, 0, 0, False, TYPE_0, "SBC HL,HL",         op_sbc_hl_rr    }, // 0x62
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),HL",     op_store_mem16  }, // 0x63
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x64
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x65
@@ -2071,7 +2095,7 @@ InstrType extended_instructions[256] = {
 
    {0, 0, 1, 0, False, TYPE_0, "IN (C)",            op_in_r_c       }, // 0x70
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),0",         op_out_c_r      }, // 0x71
-   {0, 0, 0, 0, False, TYPE_0, "SBC HL,SP",         op_NOT_IMPL     }, // 0x72
+   {0, 0, 0, 0, False, TYPE_0, "SBC HL,SP",         op_sbc_hl_rr    }, // 0x72
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),SP",     op_store_mem16  }, // 0x73
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_NOT_IMPL     }, // 0x74
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x75

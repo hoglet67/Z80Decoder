@@ -233,7 +233,7 @@ int arg_dis            = 0;
 int arg_imm            = 0;
 int arg_read           = 0;
 int arg_write          = 0;
-int failflag           = 0;
+int failflag           = FAIL_NONE;
 int instr_len          = 0;
 InstrType *instruction = NULL;
 
@@ -661,7 +661,7 @@ void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count) {
          }
          if (do_emulate) {
             // Run the emulation
-            failflag = 0;
+            failflag = FAIL_NONE;
             if (instruction && instruction->emulate) {
                instruction->emulate(instruction);
             }
@@ -672,10 +672,10 @@ void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count) {
             }
             // Show the state after executing this instruction
             printf("%s", z80_get_state());
-            if (failflag) {
-               if (failflag == 2) {
+            if (failflag > FAIL_NONE) {
+               if (failflag == FAIL_NOT_IMPLEMENTED) {
                   printf(" : not implemented");
-               } else if (failflag == 3) {
+               } else if (failflag == FAIL_IMPLEMENTATION_ERROR) {
                   printf(" : implementation error");
                } else {
                   printf(" : fail");

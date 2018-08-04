@@ -4,6 +4,11 @@
 #define False 0
 #define True  1
 
+#define FAIL_NONE                 0
+#define FAIL_ERROR                1
+#define FAIL_NOT_IMPLEMENTED      2
+#define FAIL_IMPLEMENTATION_ERROR 3
+
 typedef enum {
    TYPE_0,   // no params
    TYPE_1,   // {arg_reg}

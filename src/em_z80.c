@@ -593,7 +593,7 @@ static void update_memptr_idx_disp() {
          reg_memptr = -1;
       }
    } else {
-      failflag = 3;
+      failflag = FAIL_IMPLEMENTATION_ERROR;
    }
 }
 
@@ -602,7 +602,7 @@ static void update_memptr_idx_disp() {
 // ===================================================================
 
 static void op_NOT_IMPL(InstrType *instr) {
-   failflag = 2;
+   failflag = FAIL_NOT_IMPLEMENTED;
    update_pc();
 }
 
@@ -623,7 +623,7 @@ static void op_interrupt_nmi(InstrType *instr) {
    // Clear halted
    halted = 0;
    if (reg_pc >= 0 && reg_pc != arg_write) {
-      failflag = 1;
+      failflag = FAIL_ERROR;
    }
    reg_pc = 0x0066;
    reg_iff1 = 0;
@@ -639,14 +639,14 @@ static void op_interrupt_int(InstrType *instr) {
    // Clear halted
    halted = 0;
    if (reg_pc >= 0 && reg_pc != arg_write) {
-      failflag = 1;
+      failflag = FAIL_ERROR;
    }
    switch (reg_im) {
    case IM_MODE_1:
       reg_pc = 0x0038;
       break;
    default:
-      failflag = 2;
+      failflag = FAIL_NOT_IMPLEMENTED;
    }
    reg_iff1 = 0;
    reg_iff2 = 0;
@@ -665,7 +665,7 @@ static void op_push(InstrType *instr) {
    int reg_id = get_rr_id();
    int reg = read_reg_pair2(reg_id);
    if (reg >= 0 && reg != arg_write) {
-      failflag = 1;
+      failflag = FAIL_ERROR;
    }
    write_reg_pair2(reg_id, arg_write);
    if (reg_sp >= 0) {
@@ -747,7 +747,7 @@ static void op_call(InstrType *instr) {
    update_pc();
    // The stacked PC is the next instuction
    if (reg_pc >= 0 && reg_pc != arg_write) {
-      failflag = 1;
+      failflag = FAIL_ERROR;
    }
    reg_pc = arg_imm;
    if (reg_sp >= 0) {
@@ -876,7 +876,7 @@ static void op_rst(InstrType *instr) {
    // The stacked PC is the next instuction
    update_pc();
    if (reg_pc >= 0 && reg_pc != arg_write) {
-      failflag = 1;
+      failflag = FAIL_ERROR;
    }
    reg_pc = opcode & 0x38;
    if (reg_sp >= 0) {
@@ -1116,7 +1116,7 @@ static void op_inc_r(InstrType *instr) {
    flag_n  = 0;
    if (reg_id == ID_MEMORY) {
       if (arg_write != result) {
-         failflag = 1;
+         failflag = FAIL_ERROR;
       }
    } else {
       *reg = result;
@@ -1142,7 +1142,7 @@ static void op_inc_idx_disp(InstrType *instr) {
    flag_pv = (result == 0x80);
    flag_n  = 0;
    if (arg_write != result) {
-      failflag = 1;
+      failflag = FAIL_ERROR;
    }
    update_pc();
    // Update undocumented memptr register
@@ -1159,7 +1159,7 @@ static void op_dec_r(InstrType *instr) {
    flag_n  = 1;
    if (reg_id == ID_MEMORY) {
       if (arg_write != result) {
-         failflag = 1;
+         failflag = FAIL_ERROR;
       }
    } else {
       *reg = result;
@@ -1185,7 +1185,7 @@ static void op_dec_idx_disp(InstrType *instr) {
    flag_pv = (result == 0x80);
    flag_n  = 1;
    if (arg_write != result) {
-      failflag = 1;
+      failflag = FAIL_ERROR;
    }
    update_pc();
    // Update undocumented memptr register
@@ -1376,7 +1376,7 @@ static void op_ex_tos_hl(InstrType *instr) {
    int reg_id = get_hl_or_idx_id();
    int reg = read_reg_pair1(reg_id);
    if (reg >= 0 && reg != arg_write) {
-      failflag = 1;
+      failflag = FAIL_ERROR;
    }
    write_reg_pair1(reg_id, arg_read);
    // Update undocumented memptr register
@@ -1430,7 +1430,7 @@ static void op_load_reg8(InstrType *instr) {
    int *src = reg_ptr[src_id];
    if (dst_id == ID_MEMORY) {
       if ((*src) >= 0 && (*src) != arg_write) {
-         failflag = 1;
+         failflag = FAIL_ERROR;
       }
    } else {
       *dst = *src;
@@ -1444,7 +1444,7 @@ static void op_load_reg8(InstrType *instr) {
 
 static void op_load_idx_disp(InstrType *instr) {
    if (arg_imm != arg_write) {
-      failflag = 1;
+      failflag = FAIL_ERROR;
    }
    update_pc();
    // Update undocumented memptr register
@@ -1457,7 +1457,7 @@ static void op_load_imm8(InstrType *instr) {
    int *reg = reg_ptr[reg_id];
    if (reg_id == ID_MEMORY) {
       if (arg_imm != arg_write) {
-         failflag = 1;
+         failflag = FAIL_ERROR;
       }
    } else {
       *reg = arg_imm;
@@ -1484,7 +1484,7 @@ static void op_load_a(InstrType *instr) {
 static void op_store_a(InstrType *instr) {
    // EA = (BC) or (DE) or (nn)
    if (reg_a >= 0 && reg_a != arg_write) {
-      failflag = 1;
+      failflag = FAIL_ERROR;
    }
    reg_a = arg_write;
    // Update undocumented memptr register
@@ -1506,7 +1506,7 @@ static void op_store_mem16(InstrType *instr) {
    int rr_id = get_rr_id();
    int rr = read_reg_pair1(rr_id);
    if (rr >= 0 && rr != arg_write) {
-      failflag = 1;
+      failflag = FAIL_ERROR;
    }
    write_reg_pair1(rr_id, arg_write);
    // Update undocumented memptr register
@@ -1534,7 +1534,7 @@ static void op_out_nn_a(InstrType *instr) {
    // MEMPTR_low = (port + 1) & #FF,  MEMPTR_hi = A
    update_memptr_inc_split(reg_a, arg_imm);
    if (reg_a >= 0 && reg_a != arg_write) {
-      failflag = 1;
+      failflag = FAIL_ERROR;
    }
    reg_a = arg_write;
    update_pc();
@@ -1568,7 +1568,7 @@ static void op_out_c_r(InstrType *instr) {
    } else {
       int *reg = reg_ptr[reg_id];
       if ((*reg) >= 0 && (*reg != arg_write)) {
-         failflag = 1;
+         failflag = FAIL_ERROR;
       }
       *reg = arg_write;
    }
@@ -1640,7 +1640,7 @@ static void block_decrement_b(int io_data) {
 static void op_outd(InstrType *instr) {
    int repeat_op = opcode & 0x10;
    if (arg_write != arg_read) {
-      failflag = 1;
+      failflag = FAIL_ERROR;
    }
    block_decrement_hl();
    block_decrement_b(arg_write);
@@ -1655,7 +1655,7 @@ static void op_outd(InstrType *instr) {
 static void op_outi(InstrType *instr) {
    int repeat_op = opcode & 0x10;
    if (arg_write != arg_read) {
-      failflag = 1;
+      failflag = FAIL_ERROR;
    }
    block_increment_hl();
    block_decrement_b(arg_write);
@@ -1681,7 +1681,7 @@ static void op_ldd_ldi(InstrType *instr) {
    int dec_op = opcode & 0x08;
    int repeat_op = opcode & 0x10;
    if (arg_write != arg_read) {
-      failflag = 1;
+      failflag = FAIL_ERROR;
    }
    block_decrement_bc();
    if (dec_op) {
@@ -1940,7 +1940,7 @@ static void op_bit(InstrType *instr) {
       if (major_op != 1) {
          if (reg_id == ID_MEMORY) {
             if (arg_write != result) {
-               failflag = 1;
+               failflag = FAIL_ERROR;
             }
          } else {
             *reg_ptr[reg_id] = result;

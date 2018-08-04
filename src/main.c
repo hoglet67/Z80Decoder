@@ -390,6 +390,7 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          mnemonic = "Incorrect cycle type for pre-displacement";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
+         ret |= BIT_UNPROCESSED;
          break;
       }
       arg_dis = (char) data; // treat as signed
@@ -402,6 +403,7 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          mnemonic = "Incorrect cycle type for post displacement";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
+         ret |= BIT_UNPROCESSED;
          break;
       }
       arg_dis = (char) data;
@@ -426,6 +428,7 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          mnemonic = "Incorrect cycle type for immediate1";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
+         ret |= BIT_UNPROCESSED;
          break;
       }
       arg_imm = data;
@@ -450,6 +453,7 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          mnemonic = "Incorrect cycle type for immediate2";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
+         ret |= BIT_UNPROCESSED;
          break;
       }
       arg_imm |= data << 8;
@@ -478,6 +482,7 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          mnemonic = "Incorrect cycle type for read op1";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
+         ret |= BIT_UNPROCESSED;
          break;
       }
       arg_read = data;
@@ -499,6 +504,7 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          mnemonic = "Incorrect cycle type for read op2";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
+         ret |= BIT_UNPROCESSED;
          break;
       }
       arg_read |= data << 8;
@@ -524,6 +530,7 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          mnemonic = "Incorrect cycle type for write op1";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
+         ret |= BIT_UNPROCESSED;
          break;
       }
       arg_write = data;
@@ -541,6 +548,7 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          mnemonic = "Incorrect cycle type for write op2";
          ann_dasm = ANN_WARN;
          state = S_IDLE;
+         ret |= BIT_UNPROCESSED;
          break;
       }
       if (want_wr_be) {

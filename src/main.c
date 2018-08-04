@@ -10,6 +10,8 @@
 
 #define BUFSIZE 8192
 
+#define DEPTH 3
+
 uint16_t buffer[BUFSIZE];
 
 // Whether to emulate each decoded instruction, to track additional state (registers and flags)
@@ -553,8 +555,174 @@ int decode_state(Z80CycleType cycle, int data) {
    return ret;
 }
 
+void decode_cycle(Z80CycleType *cycle, int *data, int *cycle_count) {
 
-void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi, int nmi, int data) {
+   static int instr_cycles = 0;
+   int ret;
+   int colon;
+   char target[10];
+
+   instr_cycles += *cycle_count;
+
+   do {
+
+      ret = decode_state(*cycle, *data);
+
+      // Handle Warnings
+      if (ann_dasm == ANN_WARN) {
+         printf("WARNING: %s\n", mnemonic);
+         ann_dasm = ANN_NONE;
+      }
+
+      if (ret & BIT_INSTRUCTION) {
+         int count = 0;
+         colon = 0;
+         // We have everything available to process a complete instruction
+         if (arguments.show_address) {
+            if (z80_get_pc() >= 0) {
+               printf("%04X", z80_get_pc());
+            } else {
+               printf("????");
+            }
+            colon = 1;
+         }
+         if (arguments.show_hex) {
+            if (colon) {
+               printf(" : ");
+            }
+            for (int i = 0; i < MAX_INSTR_LEN; i++) {
+               if (i < instr_len) {
+                  printf("%02X ", instr_bytes[i]);
+               } else {
+                  printf("   ");
+               }
+            }
+            colon = 1;
+         }
+         if (arguments.show_instruction) {
+            if (colon) {
+               printf(" : ");
+            }
+            switch (format) {
+            case TYPE_1:
+               count = printf(mnemonic, arg_reg);
+               break;
+            case TYPE_2:
+               count = printf(mnemonic, arg_reg, arg_reg);
+               break;
+            case TYPE_3:
+               count = printf(mnemonic, arg_imm, arg_reg);
+               break;
+            case TYPE_4:
+               count = printf(mnemonic, arg_reg, arg_imm);
+               break;
+            case TYPE_5:
+               count = printf(mnemonic, arg_reg, arg_dis);
+               break;
+            case TYPE_6:
+               count = printf(mnemonic, arg_reg, arg_dis, arg_imm);
+               break;
+            case TYPE_7:
+               if (z80_get_pc() >= 0) {
+                  sprintf(target, "%04Xh", (z80_get_pc() + instr_len + arg_dis) & 0xffff);
+               } else {
+                  sprintf(target, "$%+d", arg_dis + instr_len);
+               }
+               count = printf(mnemonic, target);
+               break;
+            case TYPE_8:
+               count = printf(mnemonic, arg_imm);
+               break;
+            default:
+               count = printf(mnemonic, 0);
+               break;
+            }
+            // Pad the disassembled instruction
+            if (arguments.show_cycles || arguments.show_state) {
+               while (count++ < 20) {
+                  printf(" ");
+               }
+            }
+            colon = 1;
+         }
+         if (arguments.show_cycles) {
+            if (colon) {
+               printf(" : ");
+            }
+            if (ret & BIT_UNPROCESSED) {
+               instr_cycles--;
+            }
+            printf("%2d", instr_cycles);
+            colon = 1;
+         }
+         if (do_emulate) {
+            // Run the emulation
+            failflag = 0;
+            if (instruction && instruction->emulate) {
+               instruction->emulate(instruction);
+            }
+         }
+         if (arguments.show_state) {
+            if (colon) {
+               printf(" : ");
+            }
+            // Show the state after executing this instruction
+            printf("%s", z80_get_state());
+            if (failflag) {
+               if (failflag == 2) {
+                  printf(" : not implemented");
+               } else if (failflag == 3) {
+                  printf(" : implementation error");
+               } else {
+                  printf(" : fail");
+               }
+            }
+            colon = 1;
+         }
+         if (colon) {
+            printf("\n");
+         }
+
+         // Reset the instruction variables
+         instr_cycles = 0;
+
+         // Look for a falling edge of NMI
+         // TODO: this should be done at the end of every machine cycle
+         //if (nmi == 0 && prev_nmi == 1) {
+         //   nmi_pending = 1;
+         //   printf("INFO: NMI pending\n");
+         //}
+         //prev_nmi   = nmi;
+
+      }
+
+   } while (ret & BIT_UNPROCESSED);
+
+}
+
+void lookahead_decode_cycle(Z80CycleType cycle, int data, int count) {
+   static Z80CycleType cycle_q[DEPTH];
+   static int data_q[DEPTH];
+   static int count_q[DEPTH];
+   static int fill = 0;
+
+   cycle_q[fill] = cycle;
+   data_q[fill] = data;
+   count_q[fill] = count;
+   if (fill < DEPTH - 1) {
+      fill++;
+   } else {
+      decode_cycle(cycle_q, data_q, count_q);
+      for (int i = 0; i < DEPTH - 1; i++) {
+         cycle_q[i] = cycle_q[i + 1];
+         data_q[i] = data_q[i + 1];
+         count_q[i] = count_q[i + 1];
+      }
+   }
+}
+
+
+void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi, int nmi, int data) {
    static Z80CycleType prev_cycle = C_NONE;
    static int prev_data           = 0;
    static int prev_m1             = 0;
@@ -565,12 +733,7 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
    static int prev_wait           = 0;
    static int prev_nmi            = 0;
    static int prev_phi            = 0;
-   static int instr_cycles        = 0;
-
-   int ret;
-   int cycle_end;
-   int colon;
-   char target[10];
+   static int cycle_count         = 0;
 
    Z80CycleType cycle = C_NONE;
    if (mreq == 0) {
@@ -592,7 +755,8 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
          cycle = C_IOWR;
       }
    }
-   cycle_end = (cycle != prev_cycle && cycle == C_NONE);
+
+   int cycle_end = (cycle != prev_cycle && cycle == C_NONE);
 
    if (cycle != prev_cycle && cycle != C_NONE && prev_cycle != C_NONE) {
       printf("WARNING: unexpected transition from %s to %s\n",
@@ -601,9 +765,8 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
    }
 
    if (arguments.debug > 1 || (arguments.debug == 1 && cycle_end)) {
-      printf("%6s %10s %d %d %d %d %d %d %d %d %02x %c ",
+      printf("%6s %d %d %d %d %d %d %d %d %02x %c ",
              cycle_names[prev_cycle],
-             state_names[state],
              prev_m1,
              prev_rd,
              prev_wr,
@@ -639,145 +802,12 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
       printf("\n");
    }
 
-   instr_cycles++;
+   cycle_count++;
 
    if (cycle_end) {
-
-      // At the end of a cycle, inform the instruction decoder
-      do {
-
-         ret = decode_state(prev_cycle, prev_data);
-
-         // Handle Warnings
-         if (ann_dasm == ANN_WARN) {
-            printf("WARNING: %s\n", mnemonic);
-            ann_dasm = ANN_NONE;
-         }
-
-         if (ret & BIT_INSTRUCTION) {
-            int count = 0;
-            colon = 0;
-            // We have everything available to process a complete instruction
-            if (arguments.show_address) {
-               if (z80_get_pc() >= 0) {
-                  printf("%04X", z80_get_pc());
-               } else {
-                  printf("????");
-               }
-               colon = 1;
-            }
-            if (arguments.show_hex) {
-               if (colon) {
-                  printf(" : ");
-               }
-               for (int i = 0; i < MAX_INSTR_LEN; i++) {
-                  if (i < instr_len) {
-                     printf("%02X ", instr_bytes[i]);
-                  } else {
-                     printf("   ");
-                  }
-               }
-               colon = 1;
-            }
-            if (arguments.show_instruction) {
-               if (colon) {
-                  printf(" : ");
-               }
-               switch (format) {
-               case TYPE_1:
-                  count = printf(mnemonic, arg_reg);
-                  break;
-               case TYPE_2:
-                  count = printf(mnemonic, arg_reg, arg_reg);
-                  break;
-               case TYPE_3:
-                  count = printf(mnemonic, arg_imm, arg_reg);
-                  break;
-               case TYPE_4:
-                  count = printf(mnemonic, arg_reg, arg_imm);
-                  break;
-               case TYPE_5:
-                  count = printf(mnemonic, arg_reg, arg_dis);
-                  break;
-               case TYPE_6:
-                  count = printf(mnemonic, arg_reg, arg_dis, arg_imm);
-                  break;
-               case TYPE_7:
-                  if (z80_get_pc() >= 0) {
-                     sprintf(target, "%04Xh", (z80_get_pc() + instr_len + arg_dis) & 0xffff);
-                  } else {
-                     sprintf(target, "$%+d", arg_dis + instr_len);
-                  }
-                  count = printf(mnemonic, target);
-                  break;
-               case TYPE_8:
-                  count = printf(mnemonic, arg_imm);
-                  break;
-               default:
-                  count = printf(mnemonic, 0);
-                  break;
-               }
-               // Pad the disassembled instruction
-               if (arguments.show_cycles || arguments.show_state) {
-                  while (count++ < 20) {
-                     printf(" ");
-                  }
-               }
-               colon = 1;
-            }
-            if (arguments.show_cycles) {
-               if (colon) {
-                  printf(" : ");
-               }
-               if (ret & BIT_UNPROCESSED) {
-                  instr_cycles--;
-               }
-               printf("%2d", instr_cycles);
-               colon = 1;
-            }
-            if (do_emulate) {
-               // Run the emulation
-               failflag = 0;
-               if (instruction && instruction->emulate) {
-                  instruction->emulate(instruction);
-               }
-            }
-            if (arguments.show_state) {
-               if (colon) {
-                  printf(" : ");
-               }
-               // Show the state after executing this instruction
-               printf("%s", z80_get_state());
-               if (failflag) {
-                  if (failflag == 2) {
-                     printf(" : not implemented");
-                  } else if (failflag == 3) {
-                     printf(" : implementation error");
-                  } else {
-                     printf(" : fail");
-                  }
-               }
-               colon = 1;
-            }
-            if (colon) {
-               printf("\n");
-            }
-
-            // Reset the instruction variables
-            instr_cycles = 0;
-
-            // Look for a falling edge of NMI
-            // TODO: this should be done at the end of every machine cycle
-            //if (nmi == 0 && prev_nmi == 1) {
-            //   nmi_pending = 1;
-            //   printf("INFO: NMI pending\n");
-            //}
-            //prev_nmi   = nmi;
-
-         }
-
-      } while (ret & BIT_UNPROCESSED);
-
+      // At the end of a cycle, pass the cycle type, data and count onto the next stage
+      lookahead_decode_cycle(prev_cycle, prev_data, cycle_count);
+      cycle_count = 0;
    }
 
    prev_cycle = cycle;
@@ -789,9 +819,9 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
    prev_wait  = wait;
    prev_phi   = phi;
    prev_data  = data;
-
-
 }
+
+
 
 // ====================================================================
 // Input file processing and bus cycle extraction
@@ -846,10 +876,16 @@ void decode(FILE *stream) {
          phi  = (sample >> idx_phi ) & 1;
          data = (sample >> idx_data) & 255;
 
-         decode_cycle(m1, rd, wr, mreq, iorq, wait, nmi, phi, data);
+         decode_sample(m1, rd, wr, mreq, iorq, wait, nmi, phi, data);
 
       }
    }
+
+   // Flush the lookhead decoder with NOPs
+   for (int i = 0; i < DEPTH - 1; i++) {
+      lookahead_decode_cycle(C_FETCH, 0, 4);
+   }
+
 }
 
 

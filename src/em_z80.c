@@ -391,6 +391,13 @@ static void set_sign_zero(int result) {
    flag_f3 = (result >> 3) & 1;
 }
 
+static void set_sign_zero_16(int result) {
+   flag_s  = (result >> 15) & 1;
+   flag_z  = ((result & 0xffff) == 0);
+   flag_f5 = (result >> 13) & 1;
+   flag_f3 = (result >> 11) & 1;
+}
+
 static void set_sign_zero2(int result, int operand) {
    flag_s  = (result >> 7) & 1;
    flag_z  = ((result & 0xff) == 0);
@@ -929,7 +936,7 @@ static void op_alu(InstrType *instr) {
          reg_a   = -1;
          set_flags_undefined();
       }
-      flag_n = 0;
+      flag_n = 1;
       break;
    case 4:
       // AND
@@ -1028,8 +1035,10 @@ static void op_adc_hl_rr(InstrType *instr) {
    } else {
       int result = op1 + op2 + flag_c;
       int cbits = result ^ op1 ^ op2;
+      set_sign_zero_16(result);
       flag_c = (cbits >> 16) & 1;
       flag_h = (cbits >> 12) & 1;
+      flag_pv = ((cbits >> 16) ^ (cbits >> 15)) & 1;
       write_reg_pair1(dst_id, result & 0xffff);
    }
    flag_n = 0;
@@ -1050,11 +1059,13 @@ static void op_sbc_hl_rr(InstrType *instr) {
    } else {
       int result = op1 - op2 - flag_c;
       int cbits = result ^ op1 ^ op2;
+      set_sign_zero_16(result);
       flag_c = (cbits >> 16) & 1;
       flag_h = (cbits >> 12) & 1;
+      flag_pv = ((cbits >> 16) ^ (cbits >> 15)) & 1;
       write_reg_pair1(dst_id, result & 0xffff);
    }
-   flag_n = 0;
+   flag_n = 1;
    // Update undocumented memptr register
    update_memptr_inc(op1);
    update_pc();
@@ -1290,6 +1301,11 @@ static void op_misc_daa(InstrType *instr) {
 static void op_misc_cpl(InstrType *instr) {
    if (reg_a >= 0) {
       reg_a ^= 0xff;
+      flag_f5 = (reg_a >> 5) & 1;
+      flag_f3 = (reg_a >> 3) & 1;
+   } else {
+      flag_f5 = -1;
+      flag_f3 = -1;
    }
    flag_h = 1;
    flag_n = 1;

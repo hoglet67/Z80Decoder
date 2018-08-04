@@ -598,17 +598,8 @@ static void update_memptr_idx_disp() {
 }
 
 // ===================================================================
-// Emulated instructions
+// Emulated instructions - HALT/NOP/INT/NMI
 // ===================================================================
-
-static void op_NOT_IMPL(InstrType *instr) {
-   failflag = FAIL_NOT_IMPLEMENTED;
-   update_pc();
-}
-
-static void op_nop(InstrType *instr) {
-   update_pc();
-}
 
 int z80_halted() {
    return halted;
@@ -617,6 +608,10 @@ int z80_halted() {
 static void op_halt(InstrType *instr) {
    update_pc();
    halted = 1;
+}
+
+static void op_nop(InstrType *instr) {
+   update_pc();
 }
 
 static void op_interrupt_nmi(InstrType *instr) {
@@ -1213,6 +1208,43 @@ static void op_im(InstrType *instr) {
    update_pc();
 }
 
+static void op_rrd(InstrType *instr) {
+   if (reg_a > 0) {
+      reg_a = (reg_a & 0xf0) | (arg_read & 0x0f);
+      set_sign_zero(reg_a);
+      flag_pv = partab[reg_a];
+   } else {
+      flag_s  = -1;
+      flag_z  = -1;
+      flag_f5 = -1;
+      flag_f3 = -1;
+      flag_pv = -1;
+   }
+   flag_h = 0;
+   flag_n = 0;
+   // Update undocumented memptr register
+   int hl = read_reg_pair1(ID_RR_HL);
+   update_memptr_inc(hl);
+}
+
+static void op_rld(InstrType *instr) {
+   if (reg_a > 0) {
+      reg_a = (reg_a & 0xf0) | ((arg_read >> 4) & 0x0f);
+      set_sign_zero(reg_a);
+      flag_pv = partab[reg_a];
+   } else {
+      flag_s  = -1;
+      flag_z  = -1;
+      flag_f5 = -1;
+      flag_f3 = -1;
+      flag_pv = -1;
+   }
+   flag_h = 0;
+   flag_n = 0;
+   // Update undocumented memptr register
+   int hl = read_reg_pair1(ID_RR_HL);
+   update_memptr_inc(hl);
+}
 
 static void op_misc_rotate(InstrType *instr) {
    if (reg_a < 0) {
@@ -2398,7 +2430,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x64
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_retn         }, // 0x65
    {0, 0, 0, 0, False, TYPE_0, "IM 0",              op_im           }, // 0x66
-   {0, 0, 1, 1, False, TYPE_0, "RRD",               op_NOT_IMPL     }, // 0x67 - TODO: this affects memptr
+   {0, 0, 1, 1, False, TYPE_0, "RRD",               op_rrd          }, // 0x67
    {0, 0, 1, 0, False, TYPE_0, "IN L,(C)",          op_in_r_c       }, // 0x68
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),L",         op_out_c_r      }, // 0x69
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,HL",         op_adc_hl_rr    }, // 0x6A
@@ -2406,7 +2438,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x6C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_retn         }, // 0x6D
    {0, 0, 0, 0, False, TYPE_0, "IM 0/1",            op_im           }, // 0x6E
-   {0, 0, 1, 1, False, TYPE_0, "RLD",               op_NOT_IMPL     }, // 0x6F - TODO: this affects memptr
+   {0, 0, 1, 1, False, TYPE_0, "RLD",               op_rld          }, // 0x6F
 
    {0, 0, 1, 0, False, TYPE_0, "IN (C)",            op_in_r_c       }, // 0x70
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),0",         op_out_c_r      }, // 0x71

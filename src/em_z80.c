@@ -306,7 +306,7 @@ void z80_reset() {
 
 void z80_increment_r() {
    if (reg_r >= 0) {
-      reg_r = (reg_r + 1) & 0xff;
+      reg_r = (reg_r & 0x80) | ((reg_r + 1) & 0x7f);
    }
 }
 
@@ -626,6 +626,7 @@ static void op_interrupt_nmi(InstrType *instr) {
       failflag = 1;
    }
    reg_pc = 0x0066;
+   reg_iff1 = 0;
    if (reg_sp >= 0) {
       reg_sp = (reg_sp - 2) & 0xffff;
    }
@@ -647,6 +648,8 @@ static void op_interrupt_int(InstrType *instr) {
    default:
       failflag = 2;
    }
+   reg_iff1 = 0;
+   reg_iff2 = 0;
    if (reg_sp >= 0) {
       reg_sp = (reg_sp - 2) & 0xffff;
    }
@@ -780,6 +783,12 @@ static void op_ret(InstrType *instr) {
    update_memptr(reg_pc);
 }
 
+static void op_retn(InstrType *instr) {
+   op_ret(instr);
+   reg_iff1 = reg_iff2;
+   // Also used for reti, as there is no difference from an emulation perspective
+}
+
 static void op_ret_cond(InstrType *instr) {
    int cc = (opcode >> 3) & 7;
    int taken = test_cc(cc);
@@ -792,8 +801,8 @@ static void op_ret_cond(InstrType *instr) {
    } else {
       reg_pc = -1;
       reg_sp = -1;
+      update_memptr(-1);
    }
-   // TODO: undocumented memptr unclear
 }
 
 static void op_jr(InstrType *instr) {
@@ -1195,7 +1204,7 @@ static void op_di(InstrType *instr) {
 
 static void op_ei(InstrType *instr) {
    reg_iff1 = 1;
-   reg_iff2 = 2;
+   reg_iff2 = 1;
    update_pc();
 }
 
@@ -1381,6 +1390,10 @@ static void op_ex_tos_hl(InstrType *instr) {
 
 static void op_load_a_i(InstrType *instr) {
    reg_a = reg_i;
+   set_sign_zero(reg_a);
+   flag_h = 0;
+   flag_n = 0;
+   flag_pv = reg_iff2;
    update_pc();
 }
 
@@ -1680,7 +1693,7 @@ static void op_ldd_ldi(InstrType *instr) {
    }
    // Set the flags, see: page 16 of http://www.z80.info/zip/z80-documented.pdf
    if (reg_a >= 0) {
-      int result = (reg_a + arg_read) & 0xff;
+      int result = reg_a + arg_read;
       flag_f5 = (result >> 1) & 1;
       flag_f3 = (result >> 3) & 1;
    } else {
@@ -2311,7 +2324,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,BC",         op_sbc_hl_rr    }, // 0x42
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),BC",     op_store_mem16  }, // 0x43
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x44
-   {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x45
+   {0, 0, 2, 0, False, TYPE_0, "RETN",              op_retn         }, // 0x45
    {0, 0, 0, 0, False, TYPE_0, "IM 0",              op_im           }, // 0x46
    {0, 0, 0, 0, False, TYPE_0, "LD I,A",            op_load_i_a     }, // 0x47
    {0, 0, 1, 0, False, TYPE_0, "IN C,(C)",          op_in_r_c       }, // 0x48
@@ -2319,7 +2332,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,BC",         op_adc_hl_rr    }, // 0x4A
    {0, 2, 2, 0, False, TYPE_8, "LD BC,(%04Xh)",     op_load_mem16   }, // 0x4B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x4C
-   {0, 0, 2, 0, False, TYPE_0, "RETI",              op_NOT_IMPL     }, // 0x4D - TODO: this affects memptr
+   {0, 0, 2, 0, False, TYPE_0, "RETI",              op_retn         }, // 0x4D
    {0, 0, 0, 0, False, TYPE_0, "IM 0/1",            op_im           }, // 0x4E
    {0, 0, 0, 0, False, TYPE_0, "LD R,A",            op_load_r_a     }, // 0x4F
 
@@ -2328,7 +2341,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,DE",         op_sbc_hl_rr    }, // 0x52
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),DE",     op_store_mem16  }, // 0x53
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x54
-   {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x55
+   {0, 0, 2, 0, False, TYPE_0, "RETN",              op_retn         }, // 0x55
    {0, 0, 0, 0, False, TYPE_0, "IM 1",              op_im           }, // 0x56
    {0, 0, 0, 0, False, TYPE_0, "LD A,I",            op_load_a_i     }, // 0x57
    {0, 0, 1, 0, False, TYPE_0, "IN E,(C)",          op_in_r_c       }, // 0x58
@@ -2336,7 +2349,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,DE",         op_adc_hl_rr    }, // 0x5A
    {0, 2, 2, 0, False, TYPE_8, "LD DE,(%04Xh)",     op_load_mem16   }, // 0x5B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x5C
-   {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x5D
+   {0, 0, 2, 0, False, TYPE_0, "RETN",              op_retn         }, // 0x5D
    {0, 0, 0, 0, False, TYPE_0, "IM 2",              op_im           }, // 0x5E
    {0, 0, 0, 0, False, TYPE_0, "LD A,R",            op_load_a_r     }, // 0x5F
 
@@ -2345,7 +2358,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,HL",         op_sbc_hl_rr    }, // 0x62
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),HL",     op_store_mem16  }, // 0x63
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x64
-   {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x65
+   {0, 0, 2, 0, False, TYPE_0, "RETN",              op_retn         }, // 0x65
    {0, 0, 0, 0, False, TYPE_0, "IM 0",              op_im           }, // 0x66
    {0, 0, 1, 1, False, TYPE_0, "RRD",               op_NOT_IMPL     }, // 0x67 - TODO: this affects memptr
    {0, 0, 1, 0, False, TYPE_0, "IN L,(C)",          op_in_r_c       }, // 0x68
@@ -2353,7 +2366,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,HL",         op_adc_hl_rr    }, // 0x6A
    {0, 2, 2, 0, False, TYPE_8, "LD HL,(%04Xh)",     op_load_mem16   }, // 0x6B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x6C
-   {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x6D
+   {0, 0, 2, 0, False, TYPE_0, "RETN",              op_retn         }, // 0x6D
    {0, 0, 0, 0, False, TYPE_0, "IM 0/1",            op_im           }, // 0x6E
    {0, 0, 1, 1, False, TYPE_0, "RLD",               op_NOT_IMPL     }, // 0x6F - TODO: this affects memptr
 
@@ -2362,7 +2375,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "SBC HL,SP",         op_sbc_hl_rr    }, // 0x72
    {0, 2, 0, 2, False, TYPE_8, "LD (%04Xh),SP",     op_store_mem16  }, // 0x73
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x74
-   {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x75
+   {0, 0, 2, 0, False, TYPE_0, "RETN",              op_retn         }, // 0x75
    {0, 0, 0, 0, False, TYPE_0, "IM 1",              op_im           }, // 0x76
    UNDEFINED,                                                          // 0x77
    {0, 0, 1, 0, False, TYPE_0, "IN A,(C)",          op_in_r_c       }, // 0x78
@@ -2370,7 +2383,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,SP",         op_adc_hl_rr    }, // 0x7A
    {0, 2, 2, 0, False, TYPE_8, "LD SP,(%04Xh)",     op_load_mem16   }, // 0x7B
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x7C
-   {0, 0, 2, 0, False, TYPE_0, "RETN",              op_NOT_IMPL     }, // 0x7D
+   {0, 0, 2, 0, False, TYPE_0, "RETN",              op_retn         }, // 0x7D
    {0, 0, 0, 0, False, TYPE_0, "IM 2",              op_im           }, // 0x7E
    UNDEFINED,                                                          // 0x7F
 
@@ -2409,7 +2422,7 @@ InstrType extended_instructions[256] = {
    UNDEFINED,                                                          // 0x9F
 
    {0, 0, 1, 1, False, TYPE_0, "LDI",               op_ldd_ldi      }, // 0xA0
-   {0, 0, 1, 0, False, TYPE_0, "CPI",               op_cpd_cpi      }, // 0xA1 - TODO: this affects memptr
+   {0, 0, 1, 0, False, TYPE_0, "CPI",               op_cpd_cpi      }, // 0xA1
    {0, 0, 1, 1, False, TYPE_0, "INI",               op_NOT_IMPL     }, // 0xA2 - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "OUTI",              op_outi         }, // 0xA3
    UNDEFINED,                                                          // 0xA4
@@ -2417,7 +2430,7 @@ InstrType extended_instructions[256] = {
    UNDEFINED,                                                          // 0xA6
    UNDEFINED,                                                          // 0xA7
    {0, 0, 1, 1, False, TYPE_0, "LDD",               op_ldd_ldi      }, // 0xA8
-   {0, 0, 1, 0, False, TYPE_0, "CPD",               op_cpd_cpi      }, // 0xA9 - TODO: this affects memptr
+   {0, 0, 1, 0, False, TYPE_0, "CPD",               op_cpd_cpi      }, // 0xA9
    {0, 0, 1, 1, False, TYPE_0, "IND",               op_NOT_IMPL     }, // 0xAA - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "OUTD",              op_outd         }, // 0xAB
    UNDEFINED,                                                          // 0xAC
@@ -2426,7 +2439,7 @@ InstrType extended_instructions[256] = {
    UNDEFINED,                                                          // 0xAF
 
    {0, 0, 1, 1, False, TYPE_0, "LDIR",              op_ldd_ldi      }, // 0xB0
-   {0, 0, 1, 0, False, TYPE_0, "CPIR",              op_cpd_cpi      }, // 0xB1 - TODO: this affects memptr
+   {0, 0, 1, 0, False, TYPE_0, "CPIR",              op_cpd_cpi      }, // 0xB1
    {0, 0, 1, 1, False, TYPE_0, "INIR",              op_NOT_IMPL     }, // 0xB2 - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "OTIR",              op_outi         }, // 0xB3
    UNDEFINED,                                                          // 0xB4
@@ -2434,7 +2447,7 @@ InstrType extended_instructions[256] = {
    UNDEFINED,                                                          // 0xB6
    UNDEFINED,                                                          // 0xB7
    {0, 0, 1, 1, False, TYPE_0, "LDDR",              op_ldd_ldi      }, // 0xB8
-   {0, 0, 1, 0, False, TYPE_0, "CPDR",              op_cpd_cpi      }, // 0xB9 - TODO: this affects memptr
+   {0, 0, 1, 0, False, TYPE_0, "CPDR",              op_cpd_cpi      }, // 0xB9
    {0, 0, 1, 1, False, TYPE_0, "INDR",              op_NOT_IMPL     }, // 0xBA - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "OTDR",              op_outd         }, // 0xBB
    UNDEFINED,                                                          // 0xBC

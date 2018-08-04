@@ -1619,55 +1619,93 @@ static void block_increment_hl() {
    block_increment_rr(ID_RR_HL);
 }
 
-static void block_decrement_b(int io_data) {
+static void block_decrement_b(int io_data, int reg_other) {
+   // Start by setting all the flags to unknown, as they will all be set
+   set_flags_undefined();
+   // Decrement B and set the flags S Z F5 F3 and N flags
    if (reg_b >= 0) {
       reg_b = (reg_b - 1) & 0xff;
       set_sign_zero(reg_b);
-      flag_n = (arg_write >> 7) & 1;
-      if (reg_l >= 0) {
-         flag_c = ((io_data + reg_l) > 255);
-         flag_pv = partab[((io_data + reg_l) & 7) ^ reg_b];
-      } else {
-         flag_c = -1;
-         flag_pv = -1;
-      }
+      flag_n = (io_data >> 7) & 1;
+   }
+   // Set the remaining flags
+   if (reg_other >= 0) {
+      flag_c = ((arg_write + reg_other) > 255);
       flag_h = flag_c;
+   }
+   if (reg_other >= 0 && reg_b >= 0) {
+      flag_pv = partab[((io_data + reg_other) & 7) ^ reg_b];
+   }
+}
+
+static void op_ind_ini(InstrType *instr) {
+   // INI   0xA2
+   // IND   0xAA
+   // INIR  0xB2
+   // INDR  0xBA
+   int dec_op = opcode & 0x08;
+   int repeat_op = opcode & 0x10;
+   if (arg_write != arg_read) {
+      failflag = FAIL_ERROR;
+   }
+   if (dec_op) {
+      block_decrement_hl();
    } else {
-      set_flags_undefined();
+      block_increment_hl();
    }
-}
-
-static void op_outd(InstrType *instr) {
-   int repeat_op = opcode & 0x10;
-   if (arg_write != arg_read) {
-      failflag = FAIL_ERROR;
-   }
-   block_decrement_hl();
-   block_decrement_b(arg_write);
-   if (flag_z == 1 || !repeat_op) {
-      update_pc();
-   }
-   // Update undocumented memptr registet
+   // Update undocumented memptr register before B is decremented
    int bc = read_reg_pair1(ID_RR_BC);
-   update_memptr_dec(bc);
-}
-
-static void op_outi(InstrType *instr) {
-   int repeat_op = opcode & 0x10;
-   if (arg_write != arg_read) {
-      failflag = FAIL_ERROR;
+   if (dec_op) {
+      update_memptr_dec(bc);
+   } else {
+      update_memptr_inc(bc);
    }
-   block_increment_hl();
-   block_decrement_b(arg_write);
+   // Decrement B and set all the flags
+   int reg_other = reg_c;
+   if (reg_other >= 0) {
+      reg_other = (reg_other + (dec_op ? -1 : 1)) & 0xff;
+   }
+   block_decrement_b(arg_read, reg_other);
    // TODO: Use cycles to infer termination
-   if (flag_z == 1 || !repeat_op) {
+   if (!repeat_op || flag_z == 1)  {
       update_pc();
+   } else if (flag_z < 0) {
+      reg_pc = -1;
    }
-   // Update undocumented memptr registet
-   int bc = read_reg_pair1(ID_RR_BC);
-   update_memptr_inc(bc);
 }
 
+static void op_outd_outi(InstrType *instr) {
+   // OUTI   0xA3
+   // OUTD   0xAB
+   // OITIR  0xB3
+   // OUTDR  0xBB
+   int dec_op = opcode & 0x08;
+   int repeat_op = opcode & 0x10;
+   if (arg_write != arg_read) {
+      failflag = FAIL_ERROR;
+   }
+   if (dec_op) {
+      block_decrement_hl();
+   } else {
+      block_increment_hl();
+   }
+   // Decrement B and set all the flags
+   int reg_other = reg_l;
+   block_decrement_b(arg_write, reg_other);
+   // TODO: Use cycles to infer termination
+   if (!repeat_op || flag_z == 1)  {
+      update_pc();
+   } else if (flag_z < 0) {
+      reg_pc = -1;
+   }
+   // Update undocumented memptr register after B is decremented
+   int bc = read_reg_pair1(ID_RR_BC);
+   if (dec_op) {
+      update_memptr_dec(bc);
+   } else {
+      update_memptr_inc(bc);
+   }
+}
 
 // ===================================================================
 // Emulated instructions - Block load
@@ -2423,16 +2461,16 @@ InstrType extended_instructions[256] = {
 
    {0, 0, 1, 1, False, TYPE_0, "LDI",               op_ldd_ldi      }, // 0xA0
    {0, 0, 1, 0, False, TYPE_0, "CPI",               op_cpd_cpi      }, // 0xA1
-   {0, 0, 1, 1, False, TYPE_0, "INI",               op_NOT_IMPL     }, // 0xA2 - TODO: this affects memptr
-   {0, 0, 1, 1, False, TYPE_0, "OUTI",              op_outi         }, // 0xA3
+   {0, 0, 1, 1, False, TYPE_0, "INI",               op_ind_ini      }, // 0xA2
+   {0, 0, 1, 1, False, TYPE_0, "OUTI",              op_outd_outi    }, // 0xA3
    UNDEFINED,                                                          // 0xA4
    UNDEFINED,                                                          // 0xA5
    UNDEFINED,                                                          // 0xA6
    UNDEFINED,                                                          // 0xA7
    {0, 0, 1, 1, False, TYPE_0, "LDD",               op_ldd_ldi      }, // 0xA8
    {0, 0, 1, 0, False, TYPE_0, "CPD",               op_cpd_cpi      }, // 0xA9
-   {0, 0, 1, 1, False, TYPE_0, "IND",               op_NOT_IMPL     }, // 0xAA - TODO: this affects memptr
-   {0, 0, 1, 1, False, TYPE_0, "OUTD",              op_outd         }, // 0xAB
+   {0, 0, 1, 1, False, TYPE_0, "IND",               op_ind_ini      }, // 0xAA
+   {0, 0, 1, 1, False, TYPE_0, "OUTD",              op_outd_outi    }, // 0xAB
    UNDEFINED,                                                          // 0xAC
    UNDEFINED,                                                          // 0xAD
    UNDEFINED,                                                          // 0xAE
@@ -2440,16 +2478,16 @@ InstrType extended_instructions[256] = {
 
    {0, 0, 1, 1, False, TYPE_0, "LDIR",              op_ldd_ldi      }, // 0xB0
    {0, 0, 1, 0, False, TYPE_0, "CPIR",              op_cpd_cpi      }, // 0xB1
-   {0, 0, 1, 1, False, TYPE_0, "INIR",              op_NOT_IMPL     }, // 0xB2 - TODO: this affects memptr
-   {0, 0, 1, 1, False, TYPE_0, "OTIR",              op_outi         }, // 0xB3
+   {0, 0, 1, 1, False, TYPE_0, "INIR",              op_ind_ini      }, // 0xB2
+   {0, 0, 1, 1, False, TYPE_0, "OTIR",              op_outd_outi    }, // 0xB3
    UNDEFINED,                                                          // 0xB4
    UNDEFINED,                                                          // 0xB5
    UNDEFINED,                                                          // 0xB6
    UNDEFINED,                                                          // 0xB7
    {0, 0, 1, 1, False, TYPE_0, "LDDR",              op_ldd_ldi      }, // 0xB8
    {0, 0, 1, 0, False, TYPE_0, "CPDR",              op_cpd_cpi      }, // 0xB9
-   {0, 0, 1, 1, False, TYPE_0, "INDR",              op_NOT_IMPL     }, // 0xBA - TODO: this affects memptr
-   {0, 0, 1, 1, False, TYPE_0, "OTDR",              op_outd         }, // 0xBB
+   {0, 0, 1, 1, False, TYPE_0, "INDR",              op_ind_ini      }, // 0xBA
+   {0, 0, 1, 1, False, TYPE_0, "OTDR",              op_outd_outi    }, // 0xBB
    UNDEFINED,                                                          // 0xBC
    UNDEFINED,                                                          // 0xBD
    UNDEFINED,                                                          // 0xBE

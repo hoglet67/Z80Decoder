@@ -306,37 +306,43 @@ int decode_state(Z80CycleType cycle, int data) {
          state = S_IDLE;
          break;
       }
-      if (prefix == 0) {
-         // Increment the refresh address register
-         z80_increment_r();
-         // Process any first prefix byte
-         if (data == 0xCB || data == 0xED || data == 0xDD || data == 0xFD) {
-            prefix = data;
-            instr_bytes[instr_len++] = data;
-            // Increment the refresh address register a second time
-            z80_increment_r();
-            break;
-         }
-      } else if (data == 0xCB && (prefix == 0xDD || prefix == 0xFD)) {
-         // Process any second prefix byte, and then then the pre-displacement
-         prefix = (prefix << 8) | data;
-         instr_bytes[instr_len++] = data;
-         state = S_PREDIS;
-         break;
-      }
       if (cycle == C_INTACK) {
          // Treat an interrupt as just another instruction
          prefix = 0;
          instr_len = 0;
          opcode = 0;
          instruction = &special_interrupt;
+         z80_increment_r();
+      } else if (z80_halted()) {
+         z80_increment_r();
+         // When halted, execute an NOP
+         prefix = 0;
+         instr_len = 0;
+         opcode = 0;
+         instruction = &table_by_prefix(0)[0];
+      } else if ((prefix == 0) && (data == 0xCB || data == 0xED || data == 0xDD || data == 0xFD)) {
+         // Process any first prefix byte
+         prefix = data;
+         instr_bytes[instr_len++] = data;
+         // Increment the refresh address register a second time
+         z80_increment_r();
+         break;
+      } else if ((prefix == 0xDD || prefix == 0xFD) && (data == 0xCB)) {
+         // Process any second prefix byte, and then then the pre-displacement
+         prefix = (prefix << 8) | data;
+         instr_bytes[instr_len++] = data;
+         state = S_PREDIS;
+         break;
       } else {
-         // Otherwise, continue to decode the opcode
+         // Decode the prefix/opcode normally
          InstrType *table = table_by_prefix(prefix);
          arg_reg = reg_by_prefix(prefix);
          opcode = data;
          instr_bytes[instr_len++] = data;
          instruction = &table[opcode];
+      }
+      if (prefix != 0xDDCB && prefix != 0xFDCB) {
+         z80_increment_r();
       }
       if (instruction->want_dis < 0) {
          mnemonic = "Invalid instruction";
@@ -344,6 +350,7 @@ int decode_state(Z80CycleType cycle, int data) {
          state = S_IDLE;
          break;
       }
+      // If we get this far without hitting a break, we are ready to execute an instruction
       want_dis    = instruction->want_dis;
       want_imm    = instruction->want_imm;
       want_read   = instruction->want_read;
@@ -744,7 +751,7 @@ void decode_cycle(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi,
                if (failflag) {
                   if (failflag == 2) {
                      printf(" : not implemented");
-                  } if (failflag == 3) {
+                  } else if (failflag == 3) {
                      printf(" : implementation error");
                   } else {
                      printf(" : fail");

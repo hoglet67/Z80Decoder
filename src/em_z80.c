@@ -84,6 +84,7 @@ static int reg_im;
 static int reg_i;
 static int reg_r;
 static int reg_memptr;
+static int halted;
 
 #define IM_MODE_0    0
 #define IM_MODE_0_1  1
@@ -300,6 +301,7 @@ void z80_reset() {
    reg_iyh     = -1;
    reg_iyl     = -1;
    reg_memptr  = -1;
+   halted      =  0;
 }
 
 void z80_increment_r() {
@@ -601,8 +603,19 @@ static void op_nop(InstrType *instr) {
    update_pc();
 }
 
+int z80_halted() {
+   return halted;
+}
+
+static void op_halt(InstrType *instr) {
+   update_pc();
+   halted = 1;
+}
+
 static void op_interrupt(InstrType *instr) {
-   if (reg_pc >= 0 && arg_write != reg_pc) {
+   // Clear halted
+   halted = 0;
+   if (reg_pc >= 0 && reg_pc != arg_write) {
       failflag = 1;
    }
    switch (reg_im) {
@@ -840,10 +853,6 @@ static void op_rst(InstrType *instr) {
    }
    // Update undocumented memptr register
    update_memptr(reg_pc);
-}
-
-static void op_halt(InstrType *instr) {
-   // Don't update pc
 }
 
 // ===================================================================

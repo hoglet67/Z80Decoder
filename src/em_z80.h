@@ -35,5 +35,6 @@ char *z80_get_state();
 void z80_reset();
 int z80_get_pc();
 void z80_increment_r();
+int z80_halted();
 
 #endif

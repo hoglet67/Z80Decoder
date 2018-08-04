@@ -8,6 +8,8 @@
 
 #define MAX_INSTR_LEN 5
 
+#define RESET_THRESHOLD 1000
+
 #define BUFSIZE 8192
 
 #define DEPTH 3
@@ -40,7 +42,7 @@ static struct argp_option options[] = {
    { "mreq",           5, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for mreq"},
    { "iorq",           6, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for iorq"},
    { "wait",           7, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for wait"},
-   { "nmi",            8, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for nmi"},
+   { "rst",            8, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for rst"},
    { "phi",            9, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for phi"},
    { "debug",        'd',  "LEVEL",                   0, "Sets debug level (0 1 or 2)"},
 // Output options
@@ -60,7 +62,7 @@ struct arguments {
    int idx_mreq;
    int idx_iorq;
    int idx_wait;
-   int idx_nmi;
+   int idx_rst;
    int idx_phi;
    char *filename;
    int show_address;
@@ -121,9 +123,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
       break;
    case   8:
       if (arg && strlen(arg) > 0) {
-         arguments->idx_nmi = atoi(arg);
+         arguments->idx_rst = atoi(arg);
       } else {
-         arguments->idx_nmi = -1;
+         arguments->idx_rst = -1;
       }
       break;
    case   9:
@@ -245,9 +247,6 @@ static char *arg_reg        = NULL;
 
 static Z80StateType state;
 
-static int nmi_pending = 0;
-
-
 // Indicates the data bus value was not processed, and needs
 // to be re-presented
 #define BIT_UNPROCESSED 1
@@ -300,22 +299,21 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          state = S_IDLE;
          break;
       }
-      if (prefix == 0 && nmi_pending &&
-          *(cycle_q + 1) == C_MEMWR && *(cycle_q + 2) == C_MEMWR &&
-          z80_get_pc() == ((*(data_q + 1) << 8) + *(data_q + 2))) {
-         nmi_pending = 0;
-         // Treat an NMI interrupt as just another instruction
-         prefix = 0;
-         instr_len = 0;
-         opcode = 0;
-         instruction = &z80_interrupt_nmi;
-         z80_increment_r();
-      } else if (cycle == C_INTACK) {
+      if (cycle == C_INTACK) {
          // Treat an INT interrupt as just another instruction
          prefix = 0;
          instr_len = 0;
          opcode = 0;
          instruction = &z80_interrupt_int;
+         z80_increment_r();
+      } else if (prefix == 0 &&
+          *(cycle_q + 1) == C_MEMWR && *(cycle_q + 2) == C_MEMWR &&
+          z80_get_pc() == ((*(data_q + 1) << 8) + *(data_q + 2))) {
+         // Treat an NMI interrupt as just another instruction
+         prefix = 0;
+         instr_len = 0;
+         opcode = 0;
+         instruction = &z80_interrupt_nmi;
          z80_increment_r();
       } else if (z80_halted()) {
          z80_increment_r();
@@ -574,8 +572,6 @@ void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count) {
 
    instr_cycles += *cycle_count;
 
-
-
    do {
 
       ret = decode_instruction(cycle_q, data_q);
@@ -587,6 +583,12 @@ void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count) {
       }
 
       if (ret & BIT_INSTRUCTION) {
+
+         if (instr_cycles > RESET_THRESHOLD) {
+            z80_reset();
+            printf("INFO: RESET inferred\n");
+         }
+
          int count = 0;
          colon = 0;
          // We have everything available to process a complete instruction
@@ -725,7 +727,7 @@ void lookahead_decode_cycle(Z80CycleType cycle, int data, int count) {
 }
 
 
-void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi, int nmi, int data) {
+void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi, int rst, int data) {
    static Z80CycleType prev_cycle = C_NONE;
    static int prev_data           = 0;
    static int prev_m1             = 0;
@@ -734,8 +736,7 @@ void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi
    static int prev_mreq           = 0;
    static int prev_iorq           = 0;
    static int prev_wait           = 0;
-   static int prev_nmi            = 1;
-   static int prev_nmi2           = 1;
+   static int prev_rst            = 0;
    static int prev_phi            = 0;
    static int cycle_count         = 0;
 
@@ -777,7 +778,7 @@ void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi
              prev_mreq,
              prev_iorq,
              prev_wait,
-             prev_nmi,
+             prev_rst,
              prev_phi,
              prev_data,
              cycle_end ? '*' : '.'
@@ -808,17 +809,10 @@ void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi
 
    cycle_count++;
 
-   // Look for a falling edge of NMI
-   if (prev_nmi2 && !prev_nmi && !nmi) {
-      nmi_pending = 1;
-      printf("INFO: NMI pending\n");
-   }
-
    if (cycle_end) {
       // At the end of a cycle, pass the cycle type, data and count onto the next stage
       lookahead_decode_cycle(prev_cycle, prev_data, cycle_count);
       cycle_count = 0;
-
    }
 
    prev_cycle = cycle;
@@ -828,8 +822,7 @@ void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi
    prev_mreq  = mreq;
    prev_iorq  = iorq;
    prev_wait  = wait;
-   prev_nmi2  = prev_nmi;
-   prev_nmi   = nmi;
+   prev_rst   = rst;
    prev_phi   = phi;
    prev_data  = data;
 }
@@ -850,7 +843,7 @@ void decode(FILE *stream) {
    int idx_mreq  = arguments.idx_mreq;
    int idx_iorq  = arguments.idx_iorq;
    int idx_wait  = arguments.idx_wait;
-   int idx_nmi   = arguments.idx_nmi;
+   int idx_rst   = arguments.idx_rst;
    int idx_phi   = arguments.idx_phi ;
 
    int num;
@@ -864,7 +857,7 @@ void decode(FILE *stream) {
    int mreq;
    int iorq;
    int wait;
-   int nmi;
+   int rst;
    int phi;
    int data;
 
@@ -885,11 +878,11 @@ void decode(FILE *stream) {
          mreq = (sample >> idx_mreq) & 1;
          iorq = (sample >> idx_iorq) & 1;
          wait = (sample >> idx_wait) & 1;
-         nmi  = (sample >> idx_nmi ) & 1;
+         rst  = (sample >> idx_rst ) & 1;
          phi  = (sample >> idx_phi ) & 1;
          data = (sample >> idx_data) & 255;
 
-         decode_sample(m1, rd, wr, mreq, iorq, wait, nmi, phi, data);
+         decode_sample(m1, rd, wr, mreq, iorq, wait, rst, phi, data);
 
       }
    }
@@ -914,7 +907,7 @@ int main(int argc, char *argv[]) {
    arguments.idx_mreq         = 11;
    arguments.idx_iorq         = 12;
    arguments.idx_wait         = 13;
-   arguments.idx_nmi          = 14;
+   arguments.idx_rst          = 14;
    arguments.idx_phi          = 15;
    arguments.filename         = NULL;
    arguments.show_address     = 0;

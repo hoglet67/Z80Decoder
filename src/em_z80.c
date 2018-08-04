@@ -1679,12 +1679,72 @@ static void op_ldd_ldi(InstrType *instr) {
       flag_pv = -1;
    }
    // Update undocumented memptr register
-   if (flag_pv == 1 && repeat_op) {
+   if (repeat_op && flag_pv == 1) {
       update_memptr_inc(reg_pc);
+   } else if (repeat_op && flag_pv < 0) {
+      update_memptr(-1);
    }
    // TODO: Use cycles to infer termination
-   if (flag_pv == 0 || !repeat_op) {
+   if (!repeat_op || flag_pv == 0) {
       update_pc();
+   } else if (repeat_op && flag_pv < 0) {
+      reg_pc = -1;
+   }
+}
+
+static void op_cpd_cpi(InstrType *instr) {
+   // CDI   0xA1
+   // CPD   0xA9
+   // CPIR  0xB1
+   // CPDR  0xB9
+   int dec_op = opcode & 0x08;
+   int repeat_op = opcode & 0x10;
+   block_decrement_bc();
+   if (dec_op) {
+      block_decrement_hl();
+   } else {
+      block_increment_hl();
+   }
+   // Set the flags, see: page 16 of http://www.z80.info/zip/z80-documented.pdf
+   if (reg_a >= 0) {
+      int result = reg_a - arg_read;
+      int cbits = reg_a ^ arg_read ^ result;
+      flag_s = (result >> 7) & 1;
+      flag_z = ((result & 0xff) == 0);
+      flag_h = (cbits >> 4) & 1;
+      int n = (reg_a - arg_read - flag_h) & 0xff;
+      flag_f5 = (n >> 1) & 1;
+      flag_f3 = (n >> 3) & 1;
+   } else {
+      flag_s  = -1;
+      flag_z  = -1;
+      flag_h  = -1;
+      flag_f5 = -1;
+      flag_f3 = -1;
+   }
+   flag_n = 1;
+   if (reg_b >= 0 && reg_c >= 0) {
+      flag_pv = reg_b != 0 || reg_c != 0;
+   } else {
+      flag_pv = -1;
+   }
+   // Update undocumented memptr register
+   if (!repeat_op || flag_pv == 0 || flag_z == 1) {
+      if (dec_op) {
+         update_memptr_dec(reg_memptr);
+      } else {
+         update_memptr_inc(reg_memptr);
+      }
+   } else if (flag_pv == 1 && flag_z == 0) {
+      update_memptr_inc(reg_pc);
+   } else {
+      update_memptr(-1);
+   }
+   // TODO: Use cycles to infer termination
+   if (!repeat_op || flag_pv == 0 || flag_z == 1) {
+      update_pc();
+   } else if (repeat_op && !(flag_pv == 1 || flag_z == 0)) {
+      reg_pc = -1;
    }
 }
 
@@ -2333,7 +2393,7 @@ InstrType extended_instructions[256] = {
    UNDEFINED,                                                          // 0x9F
 
    {0, 0, 1, 1, False, TYPE_0, "LDI",               op_ldd_ldi      }, // 0xA0
-   {0, 0, 1, 0, False, TYPE_0, "CPI",               op_NOT_IMPL     }, // 0xA1 - TODO: this affects memptr
+   {0, 0, 1, 0, False, TYPE_0, "CPI",               op_cpd_cpi      }, // 0xA1 - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "INI",               op_NOT_IMPL     }, // 0xA2 - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "OUTI",              op_outi         }, // 0xA3
    UNDEFINED,                                                          // 0xA4
@@ -2341,7 +2401,7 @@ InstrType extended_instructions[256] = {
    UNDEFINED,                                                          // 0xA6
    UNDEFINED,                                                          // 0xA7
    {0, 0, 1, 1, False, TYPE_0, "LDD",               op_ldd_ldi      }, // 0xA8
-   {0, 0, 1, 0, False, TYPE_0, "CPD",               op_NOT_IMPL     }, // 0xA9 - TODO: this affects memptr
+   {0, 0, 1, 0, False, TYPE_0, "CPD",               op_cpd_cpi      }, // 0xA9 - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "IND",               op_NOT_IMPL     }, // 0xAA - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "OUTD",              op_outd         }, // 0xAB
    UNDEFINED,                                                          // 0xAC
@@ -2350,7 +2410,7 @@ InstrType extended_instructions[256] = {
    UNDEFINED,                                                          // 0xAF
 
    {0, 0, 1, 1, False, TYPE_0, "LDIR",              op_ldd_ldi      }, // 0xB0
-   {0, 0, 1, 0, False, TYPE_0, "CPIR",              op_NOT_IMPL     }, // 0xB1 - TODO: this affects memptr
+   {0, 0, 1, 0, False, TYPE_0, "CPIR",              op_cpd_cpi      }, // 0xB1 - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "INIR",              op_NOT_IMPL     }, // 0xB2 - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "OTIR",              op_outi         }, // 0xB3
    UNDEFINED,                                                          // 0xB4
@@ -2358,7 +2418,7 @@ InstrType extended_instructions[256] = {
    UNDEFINED,                                                          // 0xB6
    UNDEFINED,                                                          // 0xB7
    {0, 0, 1, 1, False, TYPE_0, "LDDR",              op_ldd_ldi      }, // 0xB8
-   {0, 0, 1, 0, False, TYPE_0, "CPDR",              op_NOT_IMPL     }, // 0xB9 - TODO: this affects memptr
+   {0, 0, 1, 0, False, TYPE_0, "CPDR",              op_cpd_cpi      }, // 0xB9 - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "INDR",              op_NOT_IMPL     }, // 0xBA - TODO: this affects memptr
    {0, 0, 1, 1, False, TYPE_0, "OTDR",              op_outd         }, // 0xBB
    UNDEFINED,                                                          // 0xBC

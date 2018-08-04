@@ -612,7 +612,22 @@ static void op_halt(InstrType *instr) {
    halted = 1;
 }
 
-static void op_interrupt(InstrType *instr) {
+static void op_interrupt_nmi(InstrType *instr) {
+   // Clear halted
+   halted = 0;
+   if (reg_pc >= 0 && reg_pc != arg_write) {
+      failflag = 1;
+   }
+   reg_pc = 0x0066;
+   if (reg_sp >= 0) {
+      reg_sp = (reg_sp - 2) & 0xffff;
+   }
+   // Update undocumented memptr register
+   update_memptr(reg_pc);
+
+}
+
+static void op_interrupt_int(InstrType *instr) {
    // Clear halted
    halted = 0;
    if (reg_pc >= 0 && reg_pc != arg_write) {
@@ -3249,8 +3264,11 @@ InstrType index_bit_instructions[256] = {
 };
 
 
-InstrType special_interrupt =
-   {0, 0, 0,-2, False, TYPE_0, "INTERRUPT",   op_interrupt          };
+InstrType z80_interrupt_int =
+{0, 0, 0,-2, False, TYPE_0, "INT", op_interrupt_int };
+
+InstrType z80_interrupt_nmi =
+{0, 0, 0,-2, False, TYPE_0, "NMI", op_interrupt_nmi };
 
 InstrType *table_by_prefix(int prefix) {
    switch (prefix) {

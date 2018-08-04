@@ -214,7 +214,7 @@ const char *cycle_names[] = {
    "MEMWR",
    "IORD",
    "IOWR",
-   "INTACK",
+   "INTACK"
 };
 
 typedef enum {
@@ -226,7 +226,6 @@ typedef enum {
    ANN_ROP2,
    ANN_WOP2
 } AnnType;
-
 
 int prefix             = 0;
 int opcode             = 0;
@@ -256,7 +255,7 @@ static int nmi_pending = 0;
 // Indicates the end of an instruction execution
 #define BIT_INSTRUCTION 4
 
-int decode_state(Z80CycleType cycle, int data) {
+int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
 
    static int want_dis    = 0;
    static int want_imm    = 0;
@@ -264,6 +263,9 @@ int decode_state(Z80CycleType cycle, int data) {
    static int want_write  = 0;
    static int want_wr_be  = False;
    static int conditional = False;
+
+   int cycle = *cycle_q;
+   int data = *data_q;
 
    int ret = 0;
 
@@ -291,16 +293,6 @@ int decode_state(Z80CycleType cycle, int data) {
       // And fall through to S_OPCODE
 
    case S_OPCODE:
-      // Handle interrupt acknowledge
-      if (prefix == 0) {
-         if (nmi_pending ) {
-            nmi_pending = 0;
-            // NMI always followed by two writes
-            want_write = 2;
-            state = S_WOP1;
-            break;
-         }
-      }
       // Check the cycle type...
       if (cycle != C_INTACK && cycle != ((prefix == 0xDDCB || prefix == 0xFDCB) ? C_MEMRD : C_FETCH)) {
          mnemonic = "Incorrect cycle type for prefix/opcode";
@@ -308,12 +300,22 @@ int decode_state(Z80CycleType cycle, int data) {
          state = S_IDLE;
          break;
       }
-      if (cycle == C_INTACK) {
-         // Treat an interrupt as just another instruction
+      if (prefix == 0 && nmi_pending &&
+          *(cycle_q + 1) == C_MEMWR && *(cycle_q + 2) == C_MEMWR &&
+          z80_get_pc() == ((*(data_q + 1) << 8) + *(data_q + 2))) {
+         nmi_pending = 0;
+         // Treat an NMI interrupt as just another instruction
          prefix = 0;
          instr_len = 0;
          opcode = 0;
-         instruction = &special_interrupt;
+         instruction = &z80_interrupt_nmi;
+         z80_increment_r();
+      } else if (cycle == C_INTACK) {
+         // Treat an INT interrupt as just another instruction
+         prefix = 0;
+         instr_len = 0;
+         opcode = 0;
+         instruction = &z80_interrupt_int;
          z80_increment_r();
       } else if (z80_halted()) {
          z80_increment_r();
@@ -555,7 +557,7 @@ int decode_state(Z80CycleType cycle, int data) {
    return ret;
 }
 
-void decode_cycle(Z80CycleType *cycle, int *data, int *cycle_count) {
+void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count) {
 
    static int instr_cycles = 0;
    int ret;
@@ -564,9 +566,11 @@ void decode_cycle(Z80CycleType *cycle, int *data, int *cycle_count) {
 
    instr_cycles += *cycle_count;
 
+
+
    do {
 
-      ret = decode_state(*cycle, *data);
+      ret = decode_instruction(cycle_q, data_q);
 
       // Handle Warnings
       if (ann_dasm == ANN_WARN) {
@@ -685,15 +689,6 @@ void decode_cycle(Z80CycleType *cycle, int *data, int *cycle_count) {
 
          // Reset the instruction variables
          instr_cycles = 0;
-
-         // Look for a falling edge of NMI
-         // TODO: this should be done at the end of every machine cycle
-         //if (nmi == 0 && prev_nmi == 1) {
-         //   nmi_pending = 1;
-         //   printf("INFO: NMI pending\n");
-         //}
-         //prev_nmi   = nmi;
-
       }
 
    } while (ret & BIT_UNPROCESSED);
@@ -731,7 +726,8 @@ void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi
    static int prev_mreq           = 0;
    static int prev_iorq           = 0;
    static int prev_wait           = 0;
-   static int prev_nmi            = 0;
+   static int prev_nmi            = 1;
+   static int prev_nmi2           = 1;
    static int prev_phi            = 0;
    static int cycle_count         = 0;
 
@@ -804,10 +800,17 @@ void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi
 
    cycle_count++;
 
+   // Look for a falling edge of NMI
+   if (prev_nmi2 && !prev_nmi && !nmi) {
+      nmi_pending = 1;
+      printf("INFO: NMI pending\n");
+   }
+
    if (cycle_end) {
       // At the end of a cycle, pass the cycle type, data and count onto the next stage
       lookahead_decode_cycle(prev_cycle, prev_data, cycle_count);
       cycle_count = 0;
+
    }
 
    prev_cycle = cycle;
@@ -817,6 +820,8 @@ void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi
    prev_mreq  = mreq;
    prev_iorq  = iorq;
    prev_wait  = wait;
+   prev_nmi2  = prev_nmi;
+   prev_nmi   = nmi;
    prev_phi   = phi;
    prev_data  = data;
 }

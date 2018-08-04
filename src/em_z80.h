@@ -27,7 +27,8 @@ typedef struct Instr {
    void (*emulate)(struct Instr *);
 } InstrType;
 
-extern InstrType special_interrupt;
+extern InstrType z80_interrupt_int;
+extern InstrType z80_interrupt_nmi;
 
 InstrType *table_by_prefix(int prefix);
 char *reg_by_prefix(int prefix);

@@ -262,6 +262,7 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
    static int want_write  = 0;
    static int want_wr_be  = False;
    static int conditional = False;
+   static char warning_buffer[80];
 
    int cycle = *cycle_q;
    int data = *data_q;
@@ -294,7 +295,8 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
    case S_OPCODE:
       // Check the cycle type...
       if (cycle != C_INTACK && cycle != ((prefix == 0xDDCB || prefix == 0xFDCB) ? C_MEMRD : C_FETCH)) {
-         mnemonic = "Incorrect cycle type for prefix/opcode";
+         sprintf(warning_buffer, "Incorrect cycle type for prefix/opcode: %s", cycle_names[cycle]);
+         mnemonic = warning_buffer;
          ann_dasm = ANN_WARN;
          state = S_IDLE;
          break;
@@ -386,7 +388,8 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
 
    case S_PREDIS:
       if (cycle != C_MEMRD) {
-         mnemonic = "Incorrect cycle type for pre-displacement";
+         sprintf(warning_buffer, "Incorrect cycle type for pre-displacement: %s", cycle_names[cycle]);
+         mnemonic = warning_buffer;
          ann_dasm = ANN_WARN;
          state = S_IDLE;
          ret |= BIT_UNPROCESSED;
@@ -399,7 +402,8 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
 
    case S_POSTDIS:
       if (cycle != C_MEMRD) {
-         mnemonic = "Incorrect cycle type for post displacement";
+         sprintf(warning_buffer, "Incorrect cycle type for post displacement: %s", cycle_names[cycle]);
+         mnemonic = warning_buffer;
          ann_dasm = ANN_WARN;
          state = S_IDLE;
          ret |= BIT_UNPROCESSED;
@@ -424,7 +428,8 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
 
    case S_IMM1:
       if (cycle != C_MEMRD) {
-         mnemonic = "Incorrect cycle type for immediate1";
+         sprintf(warning_buffer, "Incorrect cycle type for immediate1: %s", cycle_names[cycle]);
+         mnemonic = warning_buffer;
          ann_dasm = ANN_WARN;
          state = S_IDLE;
          ret |= BIT_UNPROCESSED;
@@ -449,7 +454,8 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
 
    case S_IMM2:
       if (cycle != C_MEMRD) {
-         mnemonic = "Incorrect cycle type for immediate2";
+         sprintf(warning_buffer, "Incorrect cycle type for immediate2: %s", cycle_names[cycle]);
+         mnemonic = warning_buffer;
          ann_dasm = ANN_WARN;
          state = S_IDLE;
          ret |= BIT_UNPROCESSED;
@@ -478,7 +484,8 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          break;
       }
       if (cycle != C_MEMRD && cycle != C_IORD) {
-         mnemonic = "Incorrect cycle type for read op1";
+         sprintf(warning_buffer, "Incorrect cycle type for read op1: %s", cycle_names[cycle]);
+         mnemonic = warning_buffer;
          ann_dasm = ANN_WARN;
          state = S_IDLE;
          ret |= BIT_UNPROCESSED;
@@ -500,7 +507,8 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
 
    case S_ROP2:
       if (cycle != C_MEMRD && cycle != C_IORD) {
-         mnemonic = "Incorrect cycle type for read op2";
+         sprintf(warning_buffer, "Incorrect cycle type for read op2: %s", cycle_names[cycle]);
+         mnemonic = warning_buffer;
          ann_dasm = ANN_WARN;
          state = S_IDLE;
          ret |= BIT_UNPROCESSED;
@@ -526,7 +534,8 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          break;
       }
       if (cycle != C_MEMWR && cycle != C_IOWR) {
-         mnemonic = "Incorrect cycle type for write op1";
+         sprintf(warning_buffer, "Incorrect cycle type for write op1: %s", cycle_names[cycle]);
+         mnemonic = warning_buffer;
          ann_dasm = ANN_WARN;
          state = S_IDLE;
          ret |= BIT_UNPROCESSED;
@@ -544,7 +553,8 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
 
    case S_WOP2:
       if (cycle != C_MEMWR && cycle != C_IOWR) {
-         mnemonic = "Incorrect cycle type for write op2";
+         sprintf(warning_buffer, "Incorrect cycle type for write op2: %s", cycle_names[cycle]);
+         mnemonic = warning_buffer;
          ann_dasm = ANN_WARN;
          state = S_IDLE;
          ret |= BIT_UNPROCESSED;

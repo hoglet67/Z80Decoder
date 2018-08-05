@@ -1412,6 +1412,13 @@ static void op_misc_scf(InstrType *instr) {
    flag_h = 0;
    flag_c = 1;
    flag_n = 0;
+   if (reg_a >= 0) {
+      flag_f5 = (reg_a >> 5) & 1;
+      flag_f3 = (reg_a >> 3) & 1;
+   } else {
+      flag_f5 = -1;
+      flag_f3 = -1;
+   }
    update_pc();
 }
 
@@ -1421,6 +1428,13 @@ static void op_misc_ccf(InstrType *instr) {
       flag_c = flag_c ^ 1;
    }
    flag_n = 0;
+   if (reg_a >= 0) {
+      flag_f5 = (reg_a >> 5) & 1;
+      flag_f3 = (reg_a >> 3) & 1;
+   } else {
+      flag_f5 = -1;
+      flag_f3 = -1;
+   }
    update_pc();
 }
 

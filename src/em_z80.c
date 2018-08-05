@@ -1264,7 +1264,7 @@ static void op_im(InstrType *instr) {
 }
 
 static void op_rrd(InstrType *instr) {
-   if (reg_a > 0) {
+   if (reg_a >= 0) {
       reg_a = (reg_a & 0xf0) | (arg_read & 0x0f);
       set_sign_zero(reg_a);
       flag_pv = partab[reg_a];
@@ -1283,7 +1283,7 @@ static void op_rrd(InstrType *instr) {
 }
 
 static void op_rld(InstrType *instr) {
-   if (reg_a > 0) {
+   if (reg_a >= 0) {
       reg_a = (reg_a & 0xf0) | ((arg_read >> 4) & 0x0f);
       set_sign_zero(reg_a);
       flag_pv = partab[reg_a];

@@ -305,7 +305,6 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          instr_len = 0;
          opcode = 0;
          instruction = &z80_interrupt_int;
-         z80_increment_r();
       } else if (prefix == 0 &&
           *(cycle_q + 1) == C_MEMWR && *(cycle_q + 2) == C_MEMWR &&
           z80_get_pc() == ((*(data_q + 1) << 8) + *(data_q + 2))) {
@@ -314,9 +313,7 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          instr_len = 0;
          opcode = 0;
          instruction = &z80_interrupt_nmi;
-         z80_increment_r();
       } else if (z80_halted()) {
-         z80_increment_r();
          // When halted, execute an NOP
          prefix = 0;
          instr_len = 0;
@@ -326,13 +323,16 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          // Process any first prefix byte
          prefix = data;
          instr_bytes[instr_len++] = data;
-         // Increment the refresh address register a second time
+         // Increment the refresh address register for the first prefix byte
          z80_increment_r();
          break;
       } else if ((prefix == 0xDD || prefix == 0xFD) && (data == 0xCB)) {
-         // Process any second prefix byte, and then then the pre-displacement
+         // Process any second prefix byte
          prefix = (prefix << 8) | data;
          instr_bytes[instr_len++] = data;
+         // Increment the refresh address register for the second prefix byte
+         z80_increment_r();
+         // 0xDDCB or 0xFDCB is followed by a mandatory displacement
          state = S_PREDIS;
          break;
       } else {
@@ -343,6 +343,7 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          instr_bytes[instr_len++] = data;
          instruction = &table[opcode];
       }
+      // Increment the refresh address register for the opcode, unless it's already been done
       if (prefix != 0xDDCB && prefix != 0xFDCB) {
          z80_increment_r();
       }

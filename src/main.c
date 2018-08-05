@@ -574,14 +574,16 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
    return ret;
 }
 
-void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count) {
+void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count, int *wait_count) {
 
    static int instr_cycles = 0;
+   static int wait_cycles = 0;
    int ret;
    int colon;
    char target[10];
 
    instr_cycles += *cycle_count;
+   wait_cycles += *wait_count;
 
    do {
 
@@ -595,7 +597,7 @@ void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count) {
 
       if (ret & BIT_INSTRUCTION) {
 
-         if (instr_cycles > RESET_THRESHOLD) {
+         if (instr_cycles + wait_cycles > RESET_THRESHOLD) {
             z80_reset();
             printf("INFO: RESET inferred\n");
          }
@@ -677,7 +679,7 @@ void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count) {
             if (ret & BIT_UNPROCESSED) {
                instr_cycles--;
             }
-            printf("%2d", instr_cycles);
+            printf("%2d/%2d", instr_cycles, wait_cycles);
             colon = 1;
          }
          if (do_emulate) {
@@ -710,35 +712,39 @@ void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count) {
 
          // Reset the instruction variables
          instr_cycles = 0;
+         wait_cycles = 0;
       }
 
    } while (ret & BIT_UNPROCESSED);
 
 }
 
-void lookahead_decode_cycle(Z80CycleType cycle, int data, int count) {
+void lookahead_decode_cycle(Z80CycleType cycle, int data, int instr_cycles, int wait_cycles) {
    static Z80CycleType cycle_q[DEPTH];
    static int data_q[DEPTH];
-   static int count_q[DEPTH];
+   static int instr_cycles_q[DEPTH];
+   static int wait_cycles_q[DEPTH];
    static int fill = 0;
 
    cycle_q[fill] = cycle;
    data_q[fill] = data;
-   count_q[fill] = count;
+   instr_cycles_q[fill] = instr_cycles;
+   wait_cycles_q[fill] = wait_cycles;
    if (fill < DEPTH - 1) {
       fill++;
    } else {
-      decode_cycle(cycle_q, data_q, count_q);
+      decode_cycle(cycle_q, data_q, instr_cycles_q, wait_cycles_q);
       for (int i = 0; i < DEPTH - 1; i++) {
          cycle_q[i] = cycle_q[i + 1];
          data_q[i] = data_q[i + 1];
-         count_q[i] = count_q[i + 1];
+         instr_cycles_q[i] = instr_cycles_q[i + 1];
+         wait_cycles_q[i] = wait_cycles_q[i + 1];
       }
    }
 }
 
 
-void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi, int rst, int data) {
+void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int rst, int phi, int data) {
    static Z80CycleType prev_cycle    = C_NONE;
    static Z80CycleType latched_cycle = C_NONE;
    static int prev_data              = 0;
@@ -751,7 +757,8 @@ void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi
    static int prev_wait              = 0;
    static int prev_rst               = 0;
    static int prev_phi               = 0;
-   static int cycle_count            = 0;
+   static int instr_cycles           = 0;
+   static int wait_cycles            = 0;
 
    Z80CycleType cycle = C_NONE;
    if (mreq == 0) {
@@ -821,7 +828,13 @@ void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi
       printf("\n");
    }
 
-   cycle_count++;
+   // Increment cycles counts on the falling edge of Phi, where wait is accurate
+   if (arguments.idx_phi < 0 || (prev_phi && !phi)) {
+      instr_cycles++;
+      if (prev_wait == 0) {
+         wait_cycles++;
+      }
+   }
 
    // At the end of a cycle, latch the cycle type and data
    if (cycle_end) {
@@ -831,8 +844,9 @@ void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi
 
    // At the beginning of the next cycle pass this on to the decoder, so the cycle count is correct
    if (cycle_start) {
-      lookahead_decode_cycle(latched_cycle, latched_data, cycle_count);
-      cycle_count = 0;
+      lookahead_decode_cycle(latched_cycle, latched_data, instr_cycles, wait_cycles);
+      instr_cycles = 0;
+      wait_cycles  = 0;
    }
 
    prev_cycle = cycle;
@@ -909,7 +923,7 @@ void decode(FILE *stream) {
 
    // Flush the lookhead decoder with NOPs
    for (int i = 0; i < DEPTH - 1; i++) {
-      lookahead_decode_cycle(C_FETCH, 0, 4);
+      lookahead_decode_cycle(C_FETCH, 0, 4, 0);
    }
 
 }

@@ -491,6 +491,7 @@ static int read_reg_pair_helper(int id, int type) {
             return (reg_a << 8) | (flag_s << 7) | (flag_z << 6) | (flag_f5 << 5) | (flag_h << 4) | (flag_f3 << 3) | (flag_pv << 2) | (flag_n << 1) | flag_c;
          }
       }
+      break;
    case 4:
       if (reg_ixh >= 0 && reg_ixl >= 0) {
          return (reg_ixh << 8) | reg_ixl;

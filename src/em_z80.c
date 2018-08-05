@@ -1506,6 +1506,10 @@ static void op_load_a_i(InstrType *instr) {
 
 static void op_load_a_r(InstrType *instr) {
    reg_a = reg_r;
+   set_sign_zero(reg_a);
+   flag_h = 0;
+   flag_n = 0;
+   flag_pv = reg_iff2;
    update_pc();
 }
 

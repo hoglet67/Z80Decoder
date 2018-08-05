@@ -898,8 +898,8 @@ void decode(FILE *stream) {
    int phi;
    int data;
 
-   // TODO: fins a better place for this
-   z80_reset();
+   // Initialize everything to unknown
+   z80_init();
 
    while ((num = fread(buffer, sizeof(uint16_t), BUFSIZE, stream)) > 0) {
 

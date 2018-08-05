@@ -255,6 +255,55 @@ int z80_get_pc() {
 // Emulation reset / interrupt
 // ===================================================================
 
+void z80_init() {
+   // Defined on reset
+   reg_pc      = -1;
+   reg_sp      = -1;
+   reg_a       = -1;
+   flag_s      = -1;
+   flag_z      = -1;
+   flag_f5     = -1;
+   flag_h      = -1;
+   flag_f3     = -1;
+   flag_pv     = -1;
+   flag_n      = -1;
+   flag_c      = -1;
+   reg_ir      = -1;
+   reg_iff1    = -1;
+   reg_iff2    = -1;
+   reg_im      = -1;
+   reg_i       = -1;
+   reg_r       = -1;
+   // Undefined on reset
+   reg_b       = -1;
+   reg_c       = -1;
+   reg_d       = -1;
+   reg_e       = -1;
+   reg_h       = -1;
+   reg_l       = -1;
+   alt_reg_a   = -1;
+   alt_flag_s  = -1;
+   alt_flag_z  = -1;
+   alt_flag_f5 = -1;
+   alt_flag_h  = -1;
+   alt_flag_f3 = -1;
+   alt_flag_pv = -1;
+   alt_flag_n  = -1;
+   alt_flag_c  = -1;
+   alt_reg_b   = -1;
+   alt_reg_c   = -1;
+   alt_reg_d   = -1;
+   alt_reg_e   = -1;
+   alt_reg_h   = -1;
+   alt_reg_l   = -1;
+   reg_ixh     = -1;
+   reg_ixl     = -1;
+   reg_iyh     = -1;
+   reg_iyl     = -1;
+   reg_memptr  = -1;
+   halted      =  0;
+}
+
 void z80_reset() {
    // Defined on reset
    reg_pc      = 0;

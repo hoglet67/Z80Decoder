@@ -1560,7 +1560,7 @@ static void op_load_idx_disp(InstrType *instr) {
 
 static void op_load_imm8(InstrType *instr) {
    // LD r[y], n
-   int reg_id  = (opcode >> 3) & 7;
+   int reg_id = get_r_id((opcode >> 3) & 7);
    int *reg = reg_ptr[reg_id];
    if (reg_id == ID_MEMORY) {
       if (arg_imm != arg_write) {
@@ -2993,7 +2993,7 @@ InstrType index_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_1, "INC %s",            op_inc_rr       }, // 0x23
    {0, 0, 0, 0, False, TYPE_1, "INC %sh",           op_inc_r        }, // 0x24
    {0, 0, 0, 0, False, TYPE_1, "DEC %sh",           op_dec_r        }, // 0x25
-   {0, 1, 0, 0, False, TYPE_4, "LD %sh,%02Xh",      op_load_reg8    }, // 0x26
+   {0, 1, 0, 0, False, TYPE_4, "LD %sh,%02Xh",      op_load_imm8    }, // 0x26
    UNDEFINED,                                                          // 0x27
    UNDEFINED,                                                          // 0x28
    {0, 0, 0, 0, False, TYPE_2, "ADD %s,%s",         op_add_hl_rr    }, // 0x29
@@ -3001,7 +3001,7 @@ InstrType index_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_1, "DEC %s",            op_dec_rr       }, // 0x2B
    {0, 0, 0, 0, False, TYPE_1, "INC %sl",           op_inc_r        }, // 0x2C
    {0, 0, 0, 0, False, TYPE_1, "DEC %sl",           op_dec_r        }, // 0x2D
-   {0, 1, 0, 0, False, TYPE_4, "LD %sl,%02Xh",      op_load_reg8    }, // 0x2E
+   {0, 1, 0, 0, False, TYPE_4, "LD %sl,%02Xh",      op_load_imm8    }, // 0x2E
    UNDEFINED,                                                          // 0x2F
 
    UNDEFINED,                                                          // 0x30

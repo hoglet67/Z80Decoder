@@ -729,17 +729,19 @@ void lookahead_decode_cycle(Z80CycleType cycle, int data, int count) {
 
 
 void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi, int rst, int data) {
-   static Z80CycleType prev_cycle = C_NONE;
-   static int prev_data           = 0;
-   static int prev_m1             = 0;
-   static int prev_rd             = 0;
-   static int prev_wr             = 0;
-   static int prev_mreq           = 0;
-   static int prev_iorq           = 0;
-   static int prev_wait           = 0;
-   static int prev_rst            = 0;
-   static int prev_phi            = 0;
-   static int cycle_count         = 0;
+   static Z80CycleType prev_cycle    = C_NONE;
+   static Z80CycleType latched_cycle = C_NONE;
+   static int prev_data              = 0;
+   static int latched_data           = 0;
+   static int prev_m1                = 0;
+   static int prev_rd                = 0;
+   static int prev_wr                = 0;
+   static int prev_mreq              = 0;
+   static int prev_iorq              = 0;
+   static int prev_wait              = 0;
+   static int prev_rst               = 0;
+   static int prev_phi               = 0;
+   static int cycle_count            = 0;
 
    Z80CycleType cycle = C_NONE;
    if (mreq == 0) {
@@ -762,6 +764,7 @@ void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi
       }
    }
 
+   int cycle_start = (cycle != prev_cycle && cycle != C_NONE);
    int cycle_end = (cycle != prev_cycle && cycle == C_NONE);
 
    if (cycle != prev_cycle && cycle != C_NONE && prev_cycle != C_NONE) {
@@ -810,9 +813,15 @@ void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int phi
 
    cycle_count++;
 
+   // At the end of a cycle, latch the cycle type and data
    if (cycle_end) {
-      // At the end of a cycle, pass the cycle type, data and count onto the next stage
-      lookahead_decode_cycle(prev_cycle, prev_data, cycle_count);
+      latched_cycle = prev_cycle;
+      latched_data  = prev_data;
+   }
+
+   // At the beginning of the next cycle pass this on to the decoder, so the cycle count is correct
+   if (cycle_start) {
+      lookahead_decode_cycle(latched_cycle, latched_data, cycle_count);
       cycle_count = 0;
    }
 

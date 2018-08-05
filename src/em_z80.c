@@ -686,12 +686,17 @@ static void op_interrupt_int(InstrType *instr) {
    if (reg_pc >= 0 && reg_pc != arg_write) {
       failflag = FAIL_ERROR;
    }
-   switch (reg_im) {
-   case IM_MODE_1:
+   if (reg_im >= 0) {
+      switch (reg_im) {
+      case IM_MODE_1:
+         reg_pc = 0x0038;
+         break;
+      default:
+         failflag = FAIL_NOT_IMPLEMENTED;
+      }
+   } else {
+      // Fall back to assuming IM1
       reg_pc = 0x0038;
-      break;
-   default:
-      failflag = FAIL_NOT_IMPLEMENTED;
    }
    reg_iff1 = 0;
    reg_iff2 = 0;

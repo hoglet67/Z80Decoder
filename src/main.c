@@ -12,7 +12,7 @@
 
 #define BUFSIZE 8192
 
-#define DEPTH 3
+#define DEPTH 4
 
 uint16_t buffer[BUFSIZE];
 
@@ -308,8 +308,11 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          opcode = 0;
          instruction = &z80_interrupt_int;
       } else if (prefix == 0 &&
-          *(cycle_q + 1) == C_MEMWR && *(cycle_q + 2) == C_MEMWR &&
-          z80_get_pc() == ((*(data_q + 1) << 8) + *(data_q + 2))) {
+                 *(cycle_q + 1) == C_MEMWR &&
+                 *(cycle_q + 2) == C_MEMWR &&
+                 *(cycle_q + 3) == C_FETCH &&
+                 z80_get_pc() == ((*(data_q + 1) << 8) + *(data_q + 2)) &&
+                 *(data_q + 3) == 0x08) { // EX AF, AF'
          // Treat an NMI interrupt as just another instruction
          prefix = 0;
          instr_len = 0;

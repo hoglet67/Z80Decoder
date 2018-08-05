@@ -2060,6 +2060,10 @@ static void op_bit(InstrType *instr) {
                flag_f5 = -1;
                flag_f3 = -1;
             }
+         } else {
+            // This different to Sean Young's document, but matches Yaze, MAME and a real trace
+            flag_f5 = (operand >> 5) & 1;
+            flag_f3 = (operand >> 3) & 1;
          }
          flag_h = 1;
          flag_n = 0;

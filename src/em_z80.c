@@ -1205,7 +1205,7 @@ static void op_dec_r(InstrType *instr) {
    int result = ((*reg) - 1) & 0xff;
    set_sign_zero(result);
    flag_h  = (result & 0x0f) == 0x0f;
-   flag_pv = (result == 0x80);
+   flag_pv = (result == 0x7f);
    flag_n  = 1;
    if (reg_id == ID_MEMORY) {
       if (arg_write != result) {
@@ -1232,7 +1232,7 @@ static void op_dec_idx_disp(InstrType *instr) {
    int result = (arg_read - 1) & 0xff;
    set_sign_zero(result);
    flag_h  = (result & 0x0f) == 0x0f;
-   flag_pv = (result == 0x80);
+   flag_pv = (result == 0x7f);
    flag_n  = 1;
    if (arg_write != result) {
       failflag = FAIL_ERROR;

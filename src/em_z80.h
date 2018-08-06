@@ -37,7 +37,7 @@ extern InstrType z80_interrupt_nmi;
 
 InstrType *table_by_prefix(int prefix);
 char *reg_by_prefix(int prefix);
-char *z80_get_state();
+char *z80_get_state(int verbosity);
 void z80_init();
 void z80_reset();
 int z80_get_pc();

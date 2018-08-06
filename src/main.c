@@ -49,7 +49,7 @@ static struct argp_option options[] = {
    { "address",      'a',        0,                   0, "Show address of instruction."},
    { "hex",          'h',        0,                   0, "Show hex bytes of instruction."},
    { "instruction",  'i',        0,                   0, "Show instruction."},
-   { "state",        's',        0,                   0, "Show register/flag state."},
+   { "state",        's',  "LEVEL", OPTION_ARG_OPTIONAL,  "Show register/flag state."},
    { "cycles",       'y',        0,                   0, "Show number of bus cycles."},
    { 0 }
 };
@@ -148,7 +148,11 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
       arguments->show_instruction = 1;
       break;
    case 's':
-      arguments->show_state = 1;
+      if (arg && strlen(arg) > 0) {
+         arguments->show_state = atoi(arg);
+      } else {
+         arguments->show_state = 1;
+      }
       break;
    case 'y':
       arguments->show_cycles = 1;
@@ -696,7 +700,7 @@ void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count, int *wai
                printf(" : ");
             }
             // Show the state after executing this instruction
-            printf("%s", z80_get_state());
+            printf("%s", z80_get_state(arguments.show_state));
             if (failflag > FAIL_NONE) {
                if (failflag == FAIL_NOT_IMPLEMENTED) {
                   printf(" : not implemented");

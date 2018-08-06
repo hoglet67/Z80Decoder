@@ -137,23 +137,28 @@ int *reg_ptr[] = {
 // Emulation output
 // ===================================================================
 
-static char buffer[100];
+static char buffer[1024];
 
-static const char default_state[] = "A=?? F=???????? BC=???? DE=???? HL=???? IX=???? IY=???? IR=???? M=???? SP=????";
+static const char default_state[] = "A=?? F=???????? BC=???? DE=???? HL=???? IX=???? IY=???? SP=????";
+static const char full_state[]    = "A=?? F=???????? BC=???? DE=???? HL=???? IX=???? IY=???? SP=???? : IR=???? IF1=? IF2=? IM=? MZ=????";
 
-#define OFFSET_A   2
-#define OFFSET_F   7
-#define OFFSET_B  19
-#define OFFSET_C  21
-#define OFFSET_D  27
-#define OFFSET_E  29
-#define OFFSET_H  35
-#define OFFSET_L  37
-#define OFFSET_IX 43
-#define OFFSET_IY 51
-#define OFFSET_IR 59
-#define OFFSET_M  66
-#define OFFSET_SP 74
+#define OFFSET_A    2
+#define OFFSET_F    7
+#define OFFSET_B   19
+#define OFFSET_C   21
+#define OFFSET_D   27
+#define OFFSET_E   29
+#define OFFSET_H   35
+#define OFFSET_L   37
+#define OFFSET_IX  43
+#define OFFSET_IY  51
+#define OFFSET_SP  59
+
+#define OFFSET_IR  69
+#define OFFSET_IF1 78
+#define OFFSET_IF2 84
+#define OFFSET_IM  89
+#define OFFSET_MZ  94
 
 static void write_flag(char *buffer, int flag, int value) {
    *buffer = value ? flag : ' ';
@@ -175,8 +180,8 @@ static void write_hex4(char *buffer, int value) {
    write_hex1(buffer++, (value >> 0) & 15);
 }
 
-char *z80_get_state() {
-   strcpy(buffer, default_state);
+char *z80_get_state(int verbosity) {
+   strcpy(buffer, verbosity > 1 ? full_state : default_state);
    if (reg_a >= 0) {
       write_hex2(buffer + OFFSET_A, reg_a);
    }
@@ -234,17 +239,28 @@ char *z80_get_state() {
    if (reg_iyl >= 0) {
       write_hex2(buffer + OFFSET_IY + 2, reg_iyl);
    }
-   if (reg_i >= 0) {
-      write_hex2(buffer + OFFSET_IR, reg_i);
-   }
-   if (reg_r >= 0) {
-      write_hex2(buffer + OFFSET_IR + 2, reg_r);
-   }
-   if (reg_memptr >= 0) {
-      write_hex4(buffer + OFFSET_M, reg_memptr);
-   }
    if (reg_sp >= 0) {
       write_hex4(buffer + OFFSET_SP, reg_sp);
+   }
+   if (verbosity > 1) {
+      if (reg_i >= 0) {
+         write_hex2(buffer + OFFSET_IR, reg_i);
+      }
+      if (reg_r >= 0) {
+         write_hex2(buffer + OFFSET_IR + 2, reg_r);
+      }
+      if (reg_iff1 >= 0) {
+         write_hex1(buffer + OFFSET_IF1, reg_iff1);
+      }
+      if (reg_iff2 >= 0) {
+         write_hex1(buffer + OFFSET_IF2, reg_iff2);
+      }
+      if (reg_im >= 0) {
+         write_hex1(buffer + OFFSET_IM, reg_im);
+      }
+      if (reg_memptr >= 0) {
+         write_hex4(buffer + OFFSET_MZ, reg_memptr);
+      }
    }
    return buffer;
 }

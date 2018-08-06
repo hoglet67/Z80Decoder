@@ -49,7 +49,7 @@ static struct argp_option options[] = {
    { "address",      'a',        0,                   0, "Show address of instruction."},
    { "hex",          'h',        0,                   0, "Show hex bytes of instruction."},
    { "instruction",  'i',        0,                   0, "Show instruction."},
-   { "state",        's',  "LEVEL", OPTION_ARG_OPTIONAL,  "Show register/flag state."},
+   { "state",        's',  "LEVEL", OPTION_ARG_OPTIONAL, "Show register/flag state."},
    { "cycles",       'y',        0,                   0, "Show number of bus cycles."},
    { 0 }
 };
@@ -309,7 +309,8 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          // Treat an INT interrupt as just another instruction
          prefix = 0;
          instr_len = 0;
-         opcode = 0;
+         // The opcode represents the "vector" captured during the interrupt acknowlehge cycle
+         opcode = data;
          instruction = &z80_interrupt_int;
       } else if (prefix == 0 &&
                  *(cycle_q + 1) == C_MEMWR &&

@@ -89,9 +89,8 @@ static int reg_memptr;
 static int halted;
 
 #define IM_MODE_0    0
-#define IM_MODE_0_1  1
-#define IM_MODE_1    2
-#define IM_MODE_2    3
+#define IM_MODE_1    1
+#define IM_MODE_2    2
 
 // Pointers to the registers,
 
@@ -708,25 +707,43 @@ static void op_interrupt_nmi(InstrType *instr) {
 static void op_interrupt_int(InstrType *instr) {
    // Clear halted
    halted = 0;
-   if (reg_pc >= 0 && reg_pc != arg_write) {
-      failflag = FAIL_ERROR;
-   }
-   if (reg_im >= 0) {
-      switch (reg_im) {
-      case IM_MODE_1:
-         reg_pc = 0x0038;
-         break;
-      default:
-         failflag = FAIL_NOT_IMPLEMENTED;
-      }
-   } else {
-      // Fall back to assuming IM1
-      reg_pc = 0x0038;
-   }
+   // Disable interrupts
    reg_iff1 = 0;
    reg_iff2 = 0;
-   if (reg_sp >= 0) {
-      reg_sp = (reg_sp - 2) & 0xffff;
+   // Determine the interrupt mode, but fall back to IM1 if reg_im is undefined
+   // (this may well be the case if the capture started after the system booted)
+   // TODO: this fallback should be a command line option
+   int mode = (reg_im >= 0) ? reg_im : IM_MODE_1;
+   if (mode == 0 && ((opcode & 0xC7) != 0xC7)) {
+      // In interrput mode 0 we only implement the case where the opcode is RST
+      failflag = FAIL_NOT_IMPLEMENTED;
+      reg_pc = -1;
+      reg_sp = -1;
+   } else {
+      // Validate the addess of the interrupted instruction
+      if (reg_pc >= 0 && reg_pc != arg_write) {
+         failflag = FAIL_ERROR;
+      }
+      // That address is pushed onto the stack
+      if (reg_sp >= 0) {
+         reg_sp = (reg_sp - 2) & 0xffff;
+      }
+      switch (mode) {
+      case IM_MODE_0:
+         // In interrupt mode 0 the vector is executed as if it were a single-byte opcode
+         reg_pc = opcode & 0x38;
+         break;
+      case IM_MODE_1:
+         // In interrupt mode 1, the vector is ignored and an RST 38 is performed
+         reg_pc = 0x0038;
+         break;
+      case IM_MODE_2:
+         // In interrupt mode 2, the new PC is read from a vector table
+         // TODO: we need to extend the instruction decoder to deal with
+         // OPCODE-WOP1-WOP2 followed by optional ROP1-ROP2
+         // reg_pc = arg_read;
+         reg_pc = -1;
+      }
    }
    // Update undocumented memptr register
    update_memptr(reg_pc);
@@ -1296,7 +1313,17 @@ static void op_ei(InstrType *instr) {
 }
 
 static void op_im(InstrType *instr) {
-   reg_im = (opcode >> 3) & 3;
+   switch ((opcode >> 3) & 3) {
+   case 2:
+      reg_im = 1;
+      break;
+   case 3:
+      reg_im = 2;
+      break;
+   default:
+      reg_im = 0;
+      break;
+   }
    update_pc();
 }
 
@@ -3529,10 +3556,10 @@ InstrType index_bit_instructions[256] = {
 
 
 InstrType z80_interrupt_int =
-{0, 0, 0,-2, False, TYPE_0, "INT", op_interrupt_int };
+{0, 0, 0, -2, False, TYPE_0, "INT", op_interrupt_int };
 
 InstrType z80_interrupt_nmi =
-{0, 0, 0,-2, False, TYPE_0, "NMI", op_interrupt_nmi };
+{0, 0, 0, -2, False, TYPE_0, "NMI", op_interrupt_nmi };
 
 InstrType *table_by_prefix(int prefix) {
    switch (prefix) {

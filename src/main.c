@@ -352,11 +352,10 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
       if (prefix != 0xDDCB && prefix != 0xFDCB) {
          z80_increment_r();
       }
-      if (instruction->want_dis < 0) {
-         mnemonic = "Invalid instruction";
-         ann_dasm = ANN_WARN;
-         state = S_IDLE;
-         break;
+      // Undefined opcodes in blocks 0xDD and 0xFD act like the unprefixed opcode
+      if ((prefix == 0xDD || prefix == 0xFD) && (instruction->want_dis < 0)) {
+         InstrType *table = table_by_prefix(0);
+         instruction = &table[opcode];
       }
       // If we get this far without hitting a break, we are ready to execute an instruction
       want_dis    = instruction->want_dis;

@@ -10,7 +10,9 @@
 #include <inttypes.h>
 #include "em_z80.h"
 
-#define UNDEFINED {-1, -1, -1, -1, False, TYPE_0, "???", NULL}
+#define UNDEFINED1 {0, 0, 0, 0, False, TYPE_0, "???", op_nop}
+
+#define UNDEFINED2 {-1, -1, -1, -1, False, TYPE_0, "???", NULL}
 
 // The following global variables are available, from the instruction decoder
 extern int prefix;
@@ -2347,7 +2349,7 @@ InstrType main_instructions[256] = {
    {0, 0, 2, 0, True,  TYPE_0, "RET Z",             op_ret_cond     }, // 0xC8
    {0, 0, 2, 0, False, TYPE_0, "RET",               op_ret          }, // 0xC9
    {0, 2, 0, 0, False, TYPE_8, "JP Z,%04Xh",        op_jp_cond      }, // 0xCA
-   UNDEFINED,                                                          // 0xCB
+   UNDEFINED1,                                                         // 0xCB
    {0, 2, 0,-2, True,  TYPE_8, "CALL Z,%04Xh",      op_call_cond    }, // 0xCC
    {0, 2, 0,-2, False, TYPE_8, "CALL %04Xh",        op_call         }, // 0xCD
    {0, 1, 0, 0, False, TYPE_8, "ADC A,%02Xh",       op_alu          }, // 0xCE
@@ -2366,7 +2368,7 @@ InstrType main_instructions[256] = {
    {0, 2, 0, 0, False, TYPE_8, "JP C,%04Xh",        op_jp_cond      }, // 0xDA
    {0, 1, 1, 0, False, TYPE_8, "IN A,(%02Xh)",      op_in_a_nn      }, // 0xDB
    {0, 2, 0,-2, True,  TYPE_8, "CALL C,%04Xh",      op_call_cond    }, // 0xDC
-   UNDEFINED,                                                          // 0xDD
+   UNDEFINED1,                                                         // 0xDD
    {0, 1, 0, 0, False, TYPE_8, "SBC A,%02Xh",       op_alu          }, // 0xDE
    {0, 0, 0,-2, False, TYPE_0, "RST 18h",           op_rst          }, // 0xDF
 
@@ -2383,7 +2385,7 @@ InstrType main_instructions[256] = {
    {0, 2, 0, 0, False, TYPE_8, "JP PE,%04Xh",       op_jp_cond      }, // 0xEA
    {0, 0, 0, 0, False, TYPE_0, "EX DE,HL",          op_ex_de_hl     }, // 0xEB
    {0, 2, 0,-2, True,  TYPE_8, "CALL PE,%04Xh",     op_call_cond    }, // 0xEC
-   UNDEFINED,                                                          // 0xED
+   UNDEFINED1,                                                         // 0xED
    {0, 1, 0, 0, False, TYPE_8, "XOR %02Xh",         op_alu          }, // 0xEE
    {0, 0, 0,-2, False, TYPE_0, "RST 28h",           op_rst          }, // 0xEF
 
@@ -2396,84 +2398,84 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 0, False, TYPE_8, "OR %02Xh",          op_alu          }, // 0xF6
    {0, 0, 0,-2, False, TYPE_0, "RST 30h",           op_rst          }, // 0xF7
    {0, 0, 2, 0, True,  TYPE_0, "RET M",             op_ret_cond     }, // 0xF8
-   {0, 0, 0, 0, False, TYPE_0, "LD SP,HL",          op_load_sp_hl  }, // 0xF9
+   {0, 0, 0, 0, False, TYPE_0, "LD SP,HL",          op_load_sp_hl   }, // 0xF9
    {0, 2, 0, 0, False, TYPE_8, "JP M,%04Xh",        op_jp_cond      }, // 0xFA
    {0, 0, 0, 0, False, TYPE_0, "EI",                op_ei           }, // 0xFB
    {0, 2, 0,-2, True,  TYPE_8, "CALL M,%04Xh",      op_call_cond    }, // 0xFC
-   UNDEFINED,                                                          // 0xFD
+   UNDEFINED1,                                                         // 0xFD
    {0, 1, 0, 0, False, TYPE_8, "CP %02Xh",          op_alu          }, // 0xFE
    {0, 0, 0,-2, False, TYPE_0, "RST 38h",           op_rst          }  // 0xFF
 };
 
 // Instructions with ED prefix
 InstrType extended_instructions[256] = {
-   UNDEFINED,                                                          // 0x00
-   UNDEFINED,                                                          // 0x01
-   UNDEFINED,                                                          // 0x02
-   UNDEFINED,                                                          // 0x03
-   UNDEFINED,                                                          // 0x04
-   UNDEFINED,                                                          // 0x05
-   UNDEFINED,                                                          // 0x06
-   UNDEFINED,                                                          // 0x07
-   UNDEFINED,                                                          // 0x08
-   UNDEFINED,                                                          // 0x09
-   UNDEFINED,                                                          // 0x0A
-   UNDEFINED,                                                          // 0x0B
-   UNDEFINED,                                                          // 0x0C
-   UNDEFINED,                                                          // 0x0D
-   UNDEFINED,                                                          // 0x0E
-   UNDEFINED,                                                          // 0x0F
+   UNDEFINED1,                                                         // 0x00
+   UNDEFINED1,                                                         // 0x01
+   UNDEFINED1,                                                         // 0x02
+   UNDEFINED1,                                                         // 0x03
+   UNDEFINED1,                                                         // 0x04
+   UNDEFINED1,                                                         // 0x05
+   UNDEFINED1,                                                         // 0x06
+   UNDEFINED1,                                                         // 0x07
+   UNDEFINED1,                                                         // 0x08
+   UNDEFINED1,                                                         // 0x09
+   UNDEFINED1,                                                         // 0x0A
+   UNDEFINED1,                                                         // 0x0B
+   UNDEFINED1,                                                         // 0x0C
+   UNDEFINED1,                                                         // 0x0D
+   UNDEFINED1,                                                         // 0x0E
+   UNDEFINED1,                                                         // 0x0F
 
-   UNDEFINED,                                                          // 0x10
-   UNDEFINED,                                                          // 0x11
-   UNDEFINED,                                                          // 0x12
-   UNDEFINED,                                                          // 0x13
-   UNDEFINED,                                                          // 0x14
-   UNDEFINED,                                                          // 0x15
-   UNDEFINED,                                                          // 0x16
-   UNDEFINED,                                                          // 0x17
-   UNDEFINED,                                                          // 0x18
-   UNDEFINED,                                                          // 0x19
-   UNDEFINED,                                                          // 0x1A
-   UNDEFINED,                                                          // 0x1B
-   UNDEFINED,                                                          // 0x1C
-   UNDEFINED,                                                          // 0x1D
-   UNDEFINED,                                                          // 0x1E
-   UNDEFINED,                                                          // 0x1F
+   UNDEFINED1,                                                         // 0x10
+   UNDEFINED1,                                                         // 0x11
+   UNDEFINED1,                                                         // 0x12
+   UNDEFINED1,                                                         // 0x13
+   UNDEFINED1,                                                         // 0x14
+   UNDEFINED1,                                                         // 0x15
+   UNDEFINED1,                                                         // 0x16
+   UNDEFINED1,                                                         // 0x17
+   UNDEFINED1,                                                         // 0x18
+   UNDEFINED1,                                                         // 0x19
+   UNDEFINED1,                                                         // 0x1A
+   UNDEFINED1,                                                         // 0x1B
+   UNDEFINED1,                                                         // 0x1C
+   UNDEFINED1,                                                         // 0x1D
+   UNDEFINED1,                                                         // 0x1E
+   UNDEFINED1,                                                         // 0x1F
 
-   UNDEFINED,                                                          // 0x20
-   UNDEFINED,                                                          // 0x21
-   UNDEFINED,                                                          // 0x22
-   UNDEFINED,                                                          // 0x23
-   UNDEFINED,                                                          // 0x24
-   UNDEFINED,                                                          // 0x25
-   UNDEFINED,                                                          // 0x26
-   UNDEFINED,                                                          // 0x27
-   UNDEFINED,                                                          // 0x28
-   UNDEFINED,                                                          // 0x29
-   UNDEFINED,                                                          // 0x2A
-   UNDEFINED,                                                          // 0x2B
-   UNDEFINED,                                                          // 0x2C
-   UNDEFINED,                                                          // 0x2D
-   UNDEFINED,                                                          // 0x2E
-   UNDEFINED,                                                          // 0x2F
+   UNDEFINED1,                                                         // 0x20
+   UNDEFINED1,                                                         // 0x21
+   UNDEFINED1,                                                         // 0x22
+   UNDEFINED1,                                                         // 0x23
+   UNDEFINED1,                                                         // 0x24
+   UNDEFINED1,                                                         // 0x25
+   UNDEFINED1,                                                         // 0x26
+   UNDEFINED1,                                                         // 0x27
+   UNDEFINED1,                                                         // 0x28
+   UNDEFINED1,                                                         // 0x29
+   UNDEFINED1,                                                         // 0x2A
+   UNDEFINED1,                                                         // 0x2B
+   UNDEFINED1,                                                         // 0x2C
+   UNDEFINED1,                                                         // 0x2D
+   UNDEFINED1,                                                         // 0x2E
+   UNDEFINED1,                                                         // 0x2F
 
-   UNDEFINED,                                                          // 0x30
-   UNDEFINED,                                                          // 0x31
-   UNDEFINED,                                                          // 0x32
-   UNDEFINED,                                                          // 0x33
-   UNDEFINED,                                                          // 0x34
-   UNDEFINED,                                                          // 0x35
-   UNDEFINED,                                                          // 0x36
-   UNDEFINED,                                                          // 0x37
-   UNDEFINED,                                                          // 0x38
-   UNDEFINED,                                                          // 0x39
-   UNDEFINED,                                                          // 0x3A
-   UNDEFINED,                                                          // 0x3B
-   UNDEFINED,                                                          // 0x3C
-   UNDEFINED,                                                          // 0x3D
-   UNDEFINED,                                                          // 0x3E
-   UNDEFINED,                                                          // 0x3F
+   UNDEFINED1,                                                         // 0x30
+   UNDEFINED1,                                                         // 0x31
+   UNDEFINED1,                                                         // 0x32
+   UNDEFINED1,                                                         // 0x33
+   UNDEFINED1,                                                         // 0x34
+   UNDEFINED1,                                                         // 0x35
+   UNDEFINED1,                                                         // 0x36
+   UNDEFINED1,                                                         // 0x37
+   UNDEFINED1,                                                         // 0x38
+   UNDEFINED1,                                                         // 0x39
+   UNDEFINED1,                                                         // 0x3A
+   UNDEFINED1,                                                         // 0x3B
+   UNDEFINED1,                                                         // 0x3C
+   UNDEFINED1,                                                         // 0x3D
+   UNDEFINED1,                                                         // 0x3E
+   UNDEFINED1,                                                         // 0x3F
 
    {0, 0, 1, 0, False, TYPE_0, "IN B,(C)",          op_in_r_c       }, // 0x40
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),B",         op_out_c_r      }, // 0x41
@@ -2533,7 +2535,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x74
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_retn         }, // 0x75
    {0, 0, 0, 0, False, TYPE_0, "IM 1",              op_im           }, // 0x76
-   UNDEFINED,                                                          // 0x77
+   UNDEFINED1,                                                         // 0x77
    {0, 0, 1, 0, False, TYPE_0, "IN A,(C)",          op_in_r_c       }, // 0x78
    {0, 0, 0, 1, False, TYPE_0, "OUT (C),A",         op_out_c_r      }, // 0x79
    {0, 0, 0, 0, False, TYPE_0, "ADC HL,SP",         op_adc_hl_rr    }, // 0x7A
@@ -2541,143 +2543,143 @@ InstrType extended_instructions[256] = {
    {0, 0, 0, 0, False, TYPE_0, "NEG",               op_neg          }, // 0x7C
    {0, 0, 2, 0, False, TYPE_0, "RETN",              op_retn         }, // 0x7D
    {0, 0, 0, 0, False, TYPE_0, "IM 2",              op_im           }, // 0x7E
-   UNDEFINED,                                                          // 0x7F
+   UNDEFINED1,                                                         // 0x7F
 
-   UNDEFINED,                                                          // 0x80
-   UNDEFINED,                                                          // 0x81
-   UNDEFINED,                                                          // 0x82
-   UNDEFINED,                                                          // 0x83
-   UNDEFINED,                                                          // 0x84
-   UNDEFINED,                                                          // 0x85
-   UNDEFINED,                                                          // 0x86
-   UNDEFINED,                                                          // 0x87
-   UNDEFINED,                                                          // 0x88
-   UNDEFINED,                                                          // 0x89
-   UNDEFINED,                                                          // 0x8A
-   UNDEFINED,                                                          // 0x8B
-   UNDEFINED,                                                          // 0x8C
-   UNDEFINED,                                                          // 0x8D
-   UNDEFINED,                                                          // 0x8E
-   UNDEFINED,                                                          // 0x8F
+   UNDEFINED1,                                                         // 0x80
+   UNDEFINED1,                                                         // 0x81
+   UNDEFINED1,                                                         // 0x82
+   UNDEFINED1,                                                         // 0x83
+   UNDEFINED1,                                                         // 0x84
+   UNDEFINED1,                                                         // 0x85
+   UNDEFINED1,                                                         // 0x86
+   UNDEFINED1,                                                         // 0x87
+   UNDEFINED1,                                                         // 0x88
+   UNDEFINED1,                                                         // 0x89
+   UNDEFINED1,                                                         // 0x8A
+   UNDEFINED1,                                                         // 0x8B
+   UNDEFINED1,                                                         // 0x8C
+   UNDEFINED1,                                                         // 0x8D
+   UNDEFINED1,                                                         // 0x8E
+   UNDEFINED1,                                                         // 0x8F
 
-   UNDEFINED,                                                          // 0x90
-   UNDEFINED,                                                          // 0x91
-   UNDEFINED,                                                          // 0x92
-   UNDEFINED,                                                          // 0x93
-   UNDEFINED,                                                          // 0x94
-   UNDEFINED,                                                          // 0x95
-   UNDEFINED,                                                          // 0x96
-   UNDEFINED,                                                          // 0x97
-   UNDEFINED,                                                          // 0x98
-   UNDEFINED,                                                          // 0x99
-   UNDEFINED,                                                          // 0x9A
-   UNDEFINED,                                                          // 0x9B
-   UNDEFINED,                                                          // 0x9C
-   UNDEFINED,                                                          // 0x9D
-   UNDEFINED,                                                          // 0x9E
-   UNDEFINED,                                                          // 0x9F
+   UNDEFINED1,                                                         // 0x90
+   UNDEFINED1,                                                         // 0x91
+   UNDEFINED1,                                                         // 0x92
+   UNDEFINED1,                                                         // 0x93
+   UNDEFINED1,                                                         // 0x94
+   UNDEFINED1,                                                         // 0x95
+   UNDEFINED1,                                                         // 0x96
+   UNDEFINED1,                                                         // 0x97
+   UNDEFINED1,                                                         // 0x98
+   UNDEFINED1,                                                         // 0x99
+   UNDEFINED1,                                                         // 0x9A
+   UNDEFINED1,                                                         // 0x9B
+   UNDEFINED1,                                                         // 0x9C
+   UNDEFINED1,                                                         // 0x9D
+   UNDEFINED1,                                                         // 0x9E
+   UNDEFINED1,                                                         // 0x9F
 
    {0, 0, 1, 1, False, TYPE_0, "LDI",               op_ldd_ldi      }, // 0xA0
    {0, 0, 1, 0, False, TYPE_0, "CPI",               op_cpd_cpi      }, // 0xA1
    {0, 0, 1, 1, False, TYPE_0, "INI",               op_ind_ini      }, // 0xA2
    {0, 0, 1, 1, False, TYPE_0, "OUTI",              op_outd_outi    }, // 0xA3
-   UNDEFINED,                                                          // 0xA4
-   UNDEFINED,                                                          // 0xA5
-   UNDEFINED,                                                          // 0xA6
-   UNDEFINED,                                                          // 0xA7
+   UNDEFINED1,                                                         // 0xA4
+   UNDEFINED1,                                                         // 0xA5
+   UNDEFINED1,                                                         // 0xA6
+   UNDEFINED1,                                                         // 0xA7
    {0, 0, 1, 1, False, TYPE_0, "LDD",               op_ldd_ldi      }, // 0xA8
    {0, 0, 1, 0, False, TYPE_0, "CPD",               op_cpd_cpi      }, // 0xA9
    {0, 0, 1, 1, False, TYPE_0, "IND",               op_ind_ini      }, // 0xAA
    {0, 0, 1, 1, False, TYPE_0, "OUTD",              op_outd_outi    }, // 0xAB
-   UNDEFINED,                                                          // 0xAC
-   UNDEFINED,                                                          // 0xAD
-   UNDEFINED,                                                          // 0xAE
-   UNDEFINED,                                                          // 0xAF
+   UNDEFINED1,                                                         // 0xAC
+   UNDEFINED1,                                                         // 0xAD
+   UNDEFINED1,                                                         // 0xAE
+   UNDEFINED1,                                                         // 0xAF
 
    {0, 0, 1, 1, False, TYPE_0, "LDIR",              op_ldd_ldi      }, // 0xB0
    {0, 0, 1, 0, False, TYPE_0, "CPIR",              op_cpd_cpi      }, // 0xB1
    {0, 0, 1, 1, False, TYPE_0, "INIR",              op_ind_ini      }, // 0xB2
    {0, 0, 1, 1, False, TYPE_0, "OTIR",              op_outd_outi    }, // 0xB3
-   UNDEFINED,                                                          // 0xB4
-   UNDEFINED,                                                          // 0xB5
-   UNDEFINED,                                                          // 0xB6
-   UNDEFINED,                                                          // 0xB7
+   UNDEFINED1,                                                         // 0xB4
+   UNDEFINED1,                                                         // 0xB5
+   UNDEFINED1,                                                         // 0xB6
+   UNDEFINED1,                                                         // 0xB7
    {0, 0, 1, 1, False, TYPE_0, "LDDR",              op_ldd_ldi      }, // 0xB8
    {0, 0, 1, 0, False, TYPE_0, "CPDR",              op_cpd_cpi      }, // 0xB9
    {0, 0, 1, 1, False, TYPE_0, "INDR",              op_ind_ini      }, // 0xBA
    {0, 0, 1, 1, False, TYPE_0, "OTDR",              op_outd_outi    }, // 0xBB
-   UNDEFINED,                                                          // 0xBC
-   UNDEFINED,                                                          // 0xBD
-   UNDEFINED,                                                          // 0xBE
-   UNDEFINED,                                                          // 0xBF
+   UNDEFINED1,                                                         // 0xBC
+   UNDEFINED1,                                                         // 0xBD
+   UNDEFINED1,                                                         // 0xBE
+   UNDEFINED1,                                                         // 0xBF
 
-   UNDEFINED,                                                          // 0xC0
-   UNDEFINED,                                                          // 0xC1
-   UNDEFINED,                                                          // 0xC2
-   UNDEFINED,                                                          // 0xC3
-   UNDEFINED,                                                          // 0xC4
-   UNDEFINED,                                                          // 0xC5
-   UNDEFINED,                                                          // 0xC6
-   UNDEFINED,                                                          // 0xC7
-   UNDEFINED,                                                          // 0xC8
-   UNDEFINED,                                                          // 0xC9
-   UNDEFINED,                                                          // 0xCA
-   UNDEFINED,                                                          // 0xCB
-   UNDEFINED,                                                          // 0xCC
-   UNDEFINED,                                                          // 0xCD
-   UNDEFINED,                                                          // 0xCE
-   UNDEFINED,                                                          // 0xCF
+   UNDEFINED1,                                                         // 0xC0
+   UNDEFINED1,                                                         // 0xC1
+   UNDEFINED1,                                                         // 0xC2
+   UNDEFINED1,                                                         // 0xC3
+   UNDEFINED1,                                                         // 0xC4
+   UNDEFINED1,                                                         // 0xC5
+   UNDEFINED1,                                                         // 0xC6
+   UNDEFINED1,                                                         // 0xC7
+   UNDEFINED1,                                                         // 0xC8
+   UNDEFINED1,                                                         // 0xC9
+   UNDEFINED1,                                                         // 0xCA
+   UNDEFINED1,                                                         // 0xCB
+   UNDEFINED1,                                                         // 0xCC
+   UNDEFINED1,                                                         // 0xCD
+   UNDEFINED1,                                                         // 0xCE
+   UNDEFINED1,                                                         // 0xCF
 
-   UNDEFINED,                                                          // 0xD0
-   UNDEFINED,                                                          // 0xD1
-   UNDEFINED,                                                          // 0xD2
-   UNDEFINED,                                                          // 0xD3
-   UNDEFINED,                                                          // 0xD4
-   UNDEFINED,                                                          // 0xD5
-   UNDEFINED,                                                          // 0xD6
-   UNDEFINED,                                                          // 0xD7
-   UNDEFINED,                                                          // 0xD8
-   UNDEFINED,                                                          // 0xD9
-   UNDEFINED,                                                          // 0xDA
-   UNDEFINED,                                                          // 0xDB
-   UNDEFINED,                                                          // 0xDC
-   UNDEFINED,                                                          // 0xDD
-   UNDEFINED,                                                          // 0xDE
-   UNDEFINED,                                                          // 0xDF
+   UNDEFINED1,                                                         // 0xD0
+   UNDEFINED1,                                                         // 0xD1
+   UNDEFINED1,                                                         // 0xD2
+   UNDEFINED1,                                                         // 0xD3
+   UNDEFINED1,                                                         // 0xD4
+   UNDEFINED1,                                                         // 0xD5
+   UNDEFINED1,                                                         // 0xD6
+   UNDEFINED1,                                                         // 0xD7
+   UNDEFINED1,                                                         // 0xD8
+   UNDEFINED1,                                                         // 0xD9
+   UNDEFINED1,                                                         // 0xDA
+   UNDEFINED1,                                                         // 0xDB
+   UNDEFINED1,                                                         // 0xDC
+   UNDEFINED1,                                                         // 0xDD
+   UNDEFINED1,                                                         // 0xDE
+   UNDEFINED1,                                                         // 0xDF
 
-   UNDEFINED,                                                          // 0xE0
-   UNDEFINED,                                                          // 0xE1
-   UNDEFINED,                                                          // 0xE2
-   UNDEFINED,                                                          // 0xE3
-   UNDEFINED,                                                          // 0xE4
-   UNDEFINED,                                                          // 0xE5
-   UNDEFINED,                                                          // 0xE6
-   UNDEFINED,                                                          // 0xE7
-   UNDEFINED,                                                          // 0xE8
-   UNDEFINED,                                                          // 0xE9
-   UNDEFINED,                                                          // 0xEA
-   UNDEFINED,                                                          // 0xEB
-   UNDEFINED,                                                          // 0xEC
-   UNDEFINED,                                                          // 0xED
-   UNDEFINED,                                                          // 0xEE
-   UNDEFINED,                                                          // 0xEF
+   UNDEFINED1,                                                         // 0xE0
+   UNDEFINED1,                                                         // 0xE1
+   UNDEFINED1,                                                         // 0xE2
+   UNDEFINED1,                                                         // 0xE3
+   UNDEFINED1,                                                         // 0xE4
+   UNDEFINED1,                                                         // 0xE5
+   UNDEFINED1,                                                         // 0xE6
+   UNDEFINED1,                                                         // 0xE7
+   UNDEFINED1,                                                         // 0xE8
+   UNDEFINED1,                                                         // 0xE9
+   UNDEFINED1,                                                         // 0xEA
+   UNDEFINED1,                                                         // 0xEB
+   UNDEFINED1,                                                         // 0xEC
+   UNDEFINED1,                                                         // 0xED
+   UNDEFINED1,                                                         // 0xEE
+   UNDEFINED1,                                                         // 0xEF
 
-   UNDEFINED,                                                          // 0xF0
-   UNDEFINED,                                                          // 0xF1
-   UNDEFINED,                                                          // 0xF2
-   UNDEFINED,                                                          // 0xF3
-   UNDEFINED,                                                          // 0xF4
-   UNDEFINED,                                                          // 0xF5
-   UNDEFINED,                                                          // 0xF6
-   UNDEFINED,                                                          // 0xF7
-   UNDEFINED,                                                          // 0xF8
-   UNDEFINED,                                                          // 0xF9
-   UNDEFINED,                                                          // 0xFA
-   UNDEFINED,                                                          // 0xFB
-   UNDEFINED,                                                          // 0xFC
-   UNDEFINED,                                                          // 0xFD
-   UNDEFINED,                                                          // 0xFE
-   UNDEFINED                                                           // 0xFF
+   UNDEFINED1,                                                         // 0xF0
+   UNDEFINED1,                                                         // 0xF1
+   UNDEFINED1,                                                         // 0xF2
+   UNDEFINED1,                                                         // 0xF3
+   UNDEFINED1,                                                         // 0xF4
+   UNDEFINED1,                                                         // 0xF5
+   UNDEFINED1,                                                         // 0xF6
+   UNDEFINED1,                                                         // 0xF7
+   UNDEFINED1,                                                         // 0xF8
+   UNDEFINED1,                                                         // 0xF9
+   UNDEFINED1,                                                         // 0xFA
+   UNDEFINED1,                                                         // 0xFB
+   UNDEFINED1,                                                         // 0xFC
+   UNDEFINED1,                                                         // 0xFD
+   UNDEFINED1,                                                         // 0xFE
+   UNDEFINED1                                                          // 0xFF
 };
 
 // Instructions with CB prefix
@@ -2957,107 +2959,107 @@ InstrType bit_instructions[256] = {
 
 // Instructions with DD or FD prefix
 InstrType index_instructions[256] = {
-   UNDEFINED,                                                          // 0x00
-   UNDEFINED,                                                          // 0x01
-   UNDEFINED,                                                          // 0x02
-   UNDEFINED,                                                          // 0x03
-   UNDEFINED,                                                          // 0x04
-   UNDEFINED,                                                          // 0x05
-   UNDEFINED,                                                          // 0x06
-   UNDEFINED,                                                          // 0x07
-   UNDEFINED,                                                          // 0x08
+   UNDEFINED2,                                                         // 0x00
+   UNDEFINED2,                                                         // 0x01
+   UNDEFINED2,                                                         // 0x02
+   UNDEFINED2,                                                         // 0x03
+   UNDEFINED2,                                                         // 0x04
+   UNDEFINED2,                                                         // 0x05
+   UNDEFINED2,                                                         // 0x06
+   UNDEFINED2,                                                         // 0x07
+   UNDEFINED2,                                                         // 0x08
    {0, 0, 0, 0, False, TYPE_1, "ADD %s,BC",         op_add_hl_rr    }, // 0x09
-   UNDEFINED,                                                          // 0x0A
-   UNDEFINED,                                                          // 0x0B
-   UNDEFINED,                                                          // 0x0C
-   UNDEFINED,                                                          // 0x0D
-   UNDEFINED,                                                          // 0x0E
-   UNDEFINED,                                                          // 0x0F
+   UNDEFINED2,                                                         // 0x0A
+   UNDEFINED2,                                                         // 0x0B
+   UNDEFINED2,                                                         // 0x0C
+   UNDEFINED2,                                                         // 0x0D
+   UNDEFINED2,                                                         // 0x0E
+   UNDEFINED2,                                                         // 0x0F
 
-   UNDEFINED,                                                          // 0x10
-   UNDEFINED,                                                          // 0x11
-   UNDEFINED,                                                          // 0x12
-   UNDEFINED,                                                          // 0x13
-   UNDEFINED,                                                          // 0x14
-   UNDEFINED,                                                          // 0x15
-   UNDEFINED,                                                          // 0x16
-   UNDEFINED,                                                          // 0x17
-   UNDEFINED,                                                          // 0x18
+   UNDEFINED2,                                                         // 0x10
+   UNDEFINED2,                                                         // 0x11
+   UNDEFINED2,                                                         // 0x12
+   UNDEFINED2,                                                         // 0x13
+   UNDEFINED2,                                                         // 0x14
+   UNDEFINED2,                                                         // 0x15
+   UNDEFINED2,                                                         // 0x16
+   UNDEFINED2,                                                         // 0x17
+   UNDEFINED2,                                                         // 0x18
    {0, 0, 0, 0, False, TYPE_1, "ADD %s,DE",         op_add_hl_rr    }, // 0x19
-   UNDEFINED,                                                          // 0x1A
-   UNDEFINED,                                                          // 0x1B
-   UNDEFINED,                                                          // 0x1C
-   UNDEFINED,                                                          // 0x1D
-   UNDEFINED,                                                          // 0x1E
-   UNDEFINED,                                                          // 0x1F
+   UNDEFINED2,                                                         // 0x1A
+   UNDEFINED2,                                                         // 0x1B
+   UNDEFINED2,                                                         // 0x1C
+   UNDEFINED2,                                                         // 0x1D
+   UNDEFINED2,                                                         // 0x1E
+   UNDEFINED2,                                                         // 0x1F
 
-   UNDEFINED,                                                          // 0x20
+   UNDEFINED2,                                                         // 0x20
    {0, 2, 0, 0, False, TYPE_4, "LD %s,%04Xh",       op_load_imm16   }, // 0x21
    {0, 2, 0, 2, False, TYPE_3, "LD (%04Xh),%s",     op_store_mem16  }, // 0x22
    {0, 0, 0, 0, False, TYPE_1, "INC %s",            op_inc_rr       }, // 0x23
    {0, 0, 0, 0, False, TYPE_1, "INC %sh",           op_inc_r        }, // 0x24
    {0, 0, 0, 0, False, TYPE_1, "DEC %sh",           op_dec_r        }, // 0x25
    {0, 1, 0, 0, False, TYPE_4, "LD %sh,%02Xh",      op_load_imm8    }, // 0x26
-   UNDEFINED,                                                          // 0x27
-   UNDEFINED,                                                          // 0x28
+   UNDEFINED2,                                                         // 0x27
+   UNDEFINED2,                                                         // 0x28
    {0, 0, 0, 0, False, TYPE_2, "ADD %s,%s",         op_add_hl_rr    }, // 0x29
    {0, 2, 2, 0, False, TYPE_4, "LD %s,(%04Xh)",     op_load_mem16   }, // 0x2A
    {0, 0, 0, 0, False, TYPE_1, "DEC %s",            op_dec_rr       }, // 0x2B
    {0, 0, 0, 0, False, TYPE_1, "INC %sl",           op_inc_r        }, // 0x2C
    {0, 0, 0, 0, False, TYPE_1, "DEC %sl",           op_dec_r        }, // 0x2D
    {0, 1, 0, 0, False, TYPE_4, "LD %sl,%02Xh",      op_load_imm8    }, // 0x2E
-   UNDEFINED,                                                          // 0x2F
+   UNDEFINED2,                                                         // 0x2F
 
-   UNDEFINED,                                                          // 0x30
-   UNDEFINED,                                                          // 0x31
-   UNDEFINED,                                                          // 0x32
-   UNDEFINED,                                                          // 0x33
+   UNDEFINED2,                                                         // 0x30
+   UNDEFINED2,                                                         // 0x31
+   UNDEFINED2,                                                         // 0x32
+   UNDEFINED2,                                                         // 0x33
    {1, 0, 1, 1, False, TYPE_5, "INC (%s%+d)",       op_inc_idx_disp }, // 0x34
    {1, 0, 1, 1, False, TYPE_5, "DEC (%s%+d)",       op_dec_idx_disp }, // 0x35
    {1, 1, 0, 1, False, TYPE_6, "LD (%s%+d),%02xh",  op_load_idx_disp },// 0x36
-   UNDEFINED,                                                          // 0x37
-   UNDEFINED,                                                          // 0x38
+   UNDEFINED2,                                                         // 0x37
+   UNDEFINED2,                                                         // 0x38
    {0, 0, 0, 0, False, TYPE_1, "ADD %s,SP",         op_add_hl_rr    }, // 0x39
-   UNDEFINED,                                                          // 0x3A
-   UNDEFINED,                                                          // 0x3B
-   UNDEFINED,                                                          // 0x3C
-   UNDEFINED,                                                          // 0x3D
-   UNDEFINED,                                                          // 0x3D
-   UNDEFINED,                                                          // 0x3F
+   UNDEFINED2,                                                         // 0x3A
+   UNDEFINED2,                                                         // 0x3B
+   UNDEFINED2,                                                         // 0x3C
+   UNDEFINED2,                                                         // 0x3D
+   UNDEFINED2,                                                         // 0x3D
+   UNDEFINED2,                                                         // 0x3F
 
-   UNDEFINED,                                                          // 0x40
-   UNDEFINED,                                                          // 0x41
-   UNDEFINED,                                                          // 0x42
-   UNDEFINED,                                                          // 0x44
+   UNDEFINED2,                                                         // 0x40
+   UNDEFINED2,                                                         // 0x41
+   UNDEFINED2,                                                         // 0x42
+   UNDEFINED2,                                                         // 0x44
    {0, 0, 0, 0, False, TYPE_1, "LD B,%sh",          op_load_reg8    }, // 0x44
    {0, 0, 0, 0, False, TYPE_1, "LD B,%sl",          op_load_reg8    }, // 0x45
    {1, 0, 1, 0, False, TYPE_5, "LD B,(%s%+d)",      op_load_reg8    }, // 0x46
-   UNDEFINED,                                                          // 0x47
-   UNDEFINED,                                                          // 0x48
-   UNDEFINED,                                                          // 0x49
-   UNDEFINED,                                                          // 0x4A
-   UNDEFINED,                                                          // 0x4B
+   UNDEFINED2,                                                         // 0x47
+   UNDEFINED2,                                                         // 0x48
+   UNDEFINED2,                                                         // 0x49
+   UNDEFINED2,                                                         // 0x4A
+   UNDEFINED2,                                                         // 0x4B
    {0, 0, 0, 0, False, TYPE_1, "LD C,%sh",          op_load_reg8    }, // 0x4C
    {0, 0, 0, 0, False, TYPE_1, "LD C,%sl",          op_load_reg8    }, // 0x4D
    {1, 0, 1, 0, False, TYPE_5, "LD C,(%s%+d)",      op_load_reg8    }, // 0x4E
-   UNDEFINED,                                                          // 0x4F
+   UNDEFINED2,                                                         // 0x4F
 
-   UNDEFINED,                                                          // 0x50
-   UNDEFINED,                                                          // 0x51
-   UNDEFINED,                                                          // 0x52
-   UNDEFINED,                                                          // 0x52
+   UNDEFINED2,                                                         // 0x50
+   UNDEFINED2,                                                         // 0x51
+   UNDEFINED2,                                                         // 0x52
+   UNDEFINED2,                                                         // 0x52
    {0, 0, 0, 0, False, TYPE_1, "LD D,%sh",          op_load_reg8    }, // 0x54
    {0, 0, 0, 0, False, TYPE_1, "LD D,%sl",          op_load_reg8    }, // 0x55
    {1, 0, 1, 0, False, TYPE_5, "LD D,(%s%+d)",      op_load_reg8    }, // 0x56
-   UNDEFINED,                                                          // 0x57
-   UNDEFINED,                                                          // 0x58
-   UNDEFINED,                                                          // 0x59
-   UNDEFINED,                                                          // 0x5A
-   UNDEFINED,                                                          // 0x5B
+   UNDEFINED2,                                                         // 0x57
+   UNDEFINED2,                                                         // 0x58
+   UNDEFINED2,                                                         // 0x59
+   UNDEFINED2,                                                         // 0x5A
+   UNDEFINED2,                                                         // 0x5B
    {0, 0, 0, 0, False, TYPE_1, "LD E,%sh",          op_load_reg8    }, // 0x5C
    {0, 0, 0, 0, False, TYPE_1, "LD E,%sl",          op_load_reg8    }, // 0x5D
    {1, 0, 1, 0, False, TYPE_5, "LD E,(%s%+d)",      op_load_reg8    }, // 0x5E
-   UNDEFINED,                                                          // 0x5F
+   UNDEFINED2,                                                         // 0x5F
 
    {0, 0, 0, 0, False, TYPE_1, "LD %sh,B",          op_load_reg8    }, // 0x60
    {0, 0, 0, 0, False, TYPE_1, "LD %sh,C",          op_load_reg8    }, // 0x61
@@ -3082,152 +3084,152 @@ InstrType index_instructions[256] = {
    {1, 0, 0, 1, False, TYPE_5, "LD (%s%+d),E",      op_load_reg8    }, // 0x73
    {1, 0, 0, 1, False, TYPE_5, "LD (%s%+d),H",      op_load_reg8    }, // 0x74
    {1, 0, 0, 1, False, TYPE_5, "LD (%s%+d),L",      op_load_reg8    }, // 0x75
-   UNDEFINED,                                                          // 0x76
+   UNDEFINED2,                                                         // 0x76
    {1, 0, 0, 1, False, TYPE_5, "LD (%s%+d),A",      op_load_reg8    }, // 0x77
-   UNDEFINED,                                                          // 0x78
-   UNDEFINED,                                                          // 0x79
-   UNDEFINED,                                                          // 0x7A
-   UNDEFINED,                                                          // 0x7B
+   UNDEFINED2,                                                         // 0x78
+   UNDEFINED2,                                                         // 0x79
+   UNDEFINED2,                                                         // 0x7A
+   UNDEFINED2,                                                         // 0x7B
    {0, 0, 0, 0, False, TYPE_1, "LD A,%sh",          op_load_reg8    }, // 0x7C
    {0, 0, 0, 0, False, TYPE_1, "LD A,%sl",          op_load_reg8    }, // 0x7D
    {1, 0, 1, 0, False, TYPE_5, "LD A,(%s%+d)",      op_load_reg8    }, // 0x7E
-   UNDEFINED,                                                          // 0x7F
+   UNDEFINED2,                                                         // 0x7F
 
-   UNDEFINED,                                                          // 0x80
-   UNDEFINED,                                                          // 0x81
-   UNDEFINED,                                                          // 0x82
-   UNDEFINED,                                                          // 0x83
+   UNDEFINED2,                                                         // 0x80
+   UNDEFINED2,                                                         // 0x81
+   UNDEFINED2,                                                         // 0x82
+   UNDEFINED2,                                                         // 0x83
    {0, 0, 0, 0, False, TYPE_1, "ADD A,%sh",         op_alu          }, // 0x84
    {0, 0, 0, 0, False, TYPE_1, "ADD A,%sl",         op_alu          }, // 0x85
    {1, 0, 1, 0, False, TYPE_5, "ADD A,(%s%+d)",     op_alu          }, // 0x86
-   UNDEFINED,                                                          // 0x87
-   UNDEFINED,                                                          // 0x88
-   UNDEFINED,                                                          // 0x89
-   UNDEFINED,                                                          // 0x8A
-   UNDEFINED,                                                          // 0x8B
+   UNDEFINED2,                                                         // 0x87
+   UNDEFINED2,                                                         // 0x88
+   UNDEFINED2,                                                         // 0x89
+   UNDEFINED2,                                                         // 0x8A
+   UNDEFINED2,                                                         // 0x8B
    {0, 0, 0, 0, False, TYPE_1, "ADC A,%sh",         op_alu          }, // 0x8C
    {0, 0, 0, 0, False, TYPE_1, "ADC A,%sl",         op_alu          }, // 0x8D
    {1, 0, 1, 0, False, TYPE_5, "ADC A,(%s%+d)",     op_alu          }, // 0x8E
-   UNDEFINED,                                                          // 0x8F
+   UNDEFINED2,                                                         // 0x8F
 
-   UNDEFINED,                                                          // 0x90
-   UNDEFINED,                                                          // 0x91
-   UNDEFINED,                                                          // 0x92
-   UNDEFINED,                                                          // 0x93
+   UNDEFINED2,                                                         // 0x90
+   UNDEFINED2,                                                         // 0x91
+   UNDEFINED2,                                                         // 0x92
+   UNDEFINED2,                                                         // 0x93
    {0, 0, 0, 0, False, TYPE_1, "SUB %sh",           op_alu          }, // 0x94
    {0, 0, 0, 0, False, TYPE_1, "SUB %sl",           op_alu          }, // 0x95
    {1, 0, 1, 0, False, TYPE_5, "SUB (%s%+d)",       op_alu          }, // 0x96
-   UNDEFINED,                                                          // 0x97
-   UNDEFINED,                                                          // 0x98
-   UNDEFINED,                                                          // 0x99
-   UNDEFINED,                                                          // 0x9A
-   UNDEFINED,                                                          // 0x9B
+   UNDEFINED2,                                                         // 0x97
+   UNDEFINED2,                                                         // 0x98
+   UNDEFINED2,                                                         // 0x99
+   UNDEFINED2,                                                         // 0x9A
+   UNDEFINED2,                                                         // 0x9B
    {0, 0, 0, 0, False, TYPE_1, "SBC A,%sh",         op_alu          }, // 0x9C
    {0, 0, 0, 0, False, TYPE_1, "SBC A,%sl",         op_alu          }, // 0x9D
    {1, 0, 1, 0, False, TYPE_5, "SBC A,(%s%+d)",     op_alu          }, // 0x9E
-   UNDEFINED,                                                          // 0x9F
+   UNDEFINED2,                                                         // 0x9F
 
-   UNDEFINED,                                                          // 0xA0
-   UNDEFINED,                                                          // 0xA1
-   UNDEFINED,                                                          // 0xA2
-   UNDEFINED,                                                          // 0xA3
+   UNDEFINED2,                                                         // 0xA0
+   UNDEFINED2,                                                         // 0xA1
+   UNDEFINED2,                                                         // 0xA2
+   UNDEFINED2,                                                         // 0xA3
    {0, 0, 0, 0, False, TYPE_1, "AND %sh",           op_alu          }, // 0xA4
    {0, 0, 0, 0, False, TYPE_1, "AND %sl",           op_alu          }, // 0xA5
    {1, 0, 1, 0, False, TYPE_5, "AND (%s%+d)",       op_alu          }, // 0xA6
-   UNDEFINED,                                                          // 0xA7
-   UNDEFINED,                                                          // 0xA8
-   UNDEFINED,                                                          // 0xA9
-   UNDEFINED,                                                          // 0xAA
-   UNDEFINED,                                                          // 0xAB
+   UNDEFINED2,                                                         // 0xA7
+   UNDEFINED2,                                                         // 0xA8
+   UNDEFINED2,                                                         // 0xA9
+   UNDEFINED2,                                                         // 0xAA
+   UNDEFINED2,                                                         // 0xAB
    {0, 0, 0, 0, False, TYPE_1, "XOR %sh",           op_alu          }, // 0xAC
    {0, 0, 0, 0, False, TYPE_1, "XOR %sl",           op_alu          }, // 0xAD
    {1, 0, 1, 0, False, TYPE_5, "XOR (%s%+d)",       op_alu          }, // 0xAE
-   UNDEFINED,                                                          // 0xEF
+   UNDEFINED2,                                                         // 0xEF
 
-   UNDEFINED,                                                          // 0xB0
-   UNDEFINED,                                                          // 0xB1
-   UNDEFINED,                                                          // 0xB2
-   UNDEFINED,                                                          // 0xB3
+   UNDEFINED2,                                                         // 0xB0
+   UNDEFINED2,                                                         // 0xB1
+   UNDEFINED2,                                                         // 0xB2
+   UNDEFINED2,                                                         // 0xB3
    {0, 0, 0, 0, False, TYPE_1, "OR %sh",            op_alu          }, // 0xB4
    {0, 0, 0, 0, False, TYPE_1, "OR %sl",            op_alu          }, // 0xB5
    {1, 0, 1, 0, False, TYPE_5, "OR (%s%+d)",        op_alu          }, // 0xB6
-   UNDEFINED,                                                          // 0xB7
-   UNDEFINED,                                                          // 0xB8
-   UNDEFINED,                                                          // 0xB9
-   UNDEFINED,                                                          // 0xBA
-   UNDEFINED,                                                          // 0xBB
+   UNDEFINED2,                                                         // 0xB7
+   UNDEFINED2,                                                         // 0xB8
+   UNDEFINED2,                                                         // 0xB9
+   UNDEFINED2,                                                         // 0xBA
+   UNDEFINED2,                                                         // 0xBB
    {0, 0, 0, 0, False, TYPE_1, "CP %sh",            op_alu          }, // 0xBC
    {0, 0, 0, 0, False, TYPE_1, "CP %sl",            op_alu          }, // 0xBD
    {1, 0, 1, 0, False, TYPE_5, "CP (%s%+d)",        op_alu          }, // 0xBE
-   UNDEFINED,                                                          // 0xBF
+   UNDEFINED2,                                                         // 0xBF
 
-   UNDEFINED,                                                          // 0xC0
-   UNDEFINED,                                                          // 0xC1
-   UNDEFINED,                                                          // 0xC2
-   UNDEFINED,                                                          // 0xC3
-   UNDEFINED,                                                          // 0xC4
-   UNDEFINED,                                                          // 0xC5
-   UNDEFINED,                                                          // 0xC6
-   UNDEFINED,                                                          // 0xC7
-   UNDEFINED,                                                          // 0xC8
-   UNDEFINED,                                                          // 0xC9
-   UNDEFINED,                                                          // 0xCA
-   UNDEFINED,                                                          // 0xCB
-   UNDEFINED,                                                          // 0xCC
-   UNDEFINED,                                                          // 0xCD
-   UNDEFINED,                                                          // 0xCE
-   UNDEFINED,                                                          // 0xCF
+   UNDEFINED2,                                                         // 0xC0
+   UNDEFINED2,                                                         // 0xC1
+   UNDEFINED2,                                                         // 0xC2
+   UNDEFINED2,                                                         // 0xC3
+   UNDEFINED2,                                                         // 0xC4
+   UNDEFINED2,                                                         // 0xC5
+   UNDEFINED2,                                                         // 0xC6
+   UNDEFINED2,                                                         // 0xC7
+   UNDEFINED2,                                                         // 0xC8
+   UNDEFINED2,                                                         // 0xC9
+   UNDEFINED2,                                                         // 0xCA
+   UNDEFINED2,                                                         // 0xCB
+   UNDEFINED2,                                                         // 0xCC
+   UNDEFINED2,                                                         // 0xCD
+   UNDEFINED2,                                                         // 0xCE
+   UNDEFINED2,                                                         // 0xCF
 
-   UNDEFINED,                                                          // 0xD0
-   UNDEFINED,                                                          // 0xD1
-   UNDEFINED,                                                          // 0xD2
-   UNDEFINED,                                                          // 0xD3
-   UNDEFINED,                                                          // 0xD4
-   UNDEFINED,                                                          // 0xD5
-   UNDEFINED,                                                          // 0xD6
-   UNDEFINED,                                                          // 0xD7
-   UNDEFINED,                                                          // 0xD8
-   UNDEFINED,                                                          // 0xD9
-   UNDEFINED,                                                          // 0xDA
-   UNDEFINED,                                                          // 0xDB
-   UNDEFINED,                                                          // 0xDC
-   UNDEFINED,                                                          // 0xDD
-   UNDEFINED,                                                          // 0xDE
-   UNDEFINED,                                                          // 0xDF
+   UNDEFINED2,                                                         // 0xD0
+   UNDEFINED2,                                                         // 0xD1
+   UNDEFINED2,                                                         // 0xD2
+   UNDEFINED2,                                                         // 0xD3
+   UNDEFINED2,                                                         // 0xD4
+   UNDEFINED2,                                                         // 0xD5
+   UNDEFINED2,                                                         // 0xD6
+   UNDEFINED2,                                                         // 0xD7
+   UNDEFINED2,                                                         // 0xD8
+   UNDEFINED2,                                                         // 0xD9
+   UNDEFINED2,                                                         // 0xDA
+   UNDEFINED2,                                                         // 0xDB
+   UNDEFINED2,                                                         // 0xDC
+   UNDEFINED2,                                                         // 0xDD
+   UNDEFINED2,                                                         // 0xDE
+   UNDEFINED2,                                                         // 0xDF
 
-   UNDEFINED,                                                          // 0xE0
+   UNDEFINED2,                                                         // 0xE0
    {0, 0, 2, 0, False, TYPE_1, "POP %s",            op_pop          }, // 0xE1
-   UNDEFINED,                                                          // 0xE2
+   UNDEFINED2,                                                         // 0xE2
    {0, 0, 2,-2, False, TYPE_1, "EX (SP),%s",        op_ex_tos_hl    }, // 0xE3
-   UNDEFINED,                                                          // 0xE4
+   UNDEFINED2,                                                         // 0xE4
    {0, 0, 0,-2, False, TYPE_1, "PUSH %s",           op_push         }, // 0xE5
-   UNDEFINED,                                                          // 0xE6
-   UNDEFINED,                                                          // 0xE7
-   UNDEFINED,                                                          // 0xE8
+   UNDEFINED2,                                                         // 0xE6
+   UNDEFINED2,                                                         // 0xE7
+   UNDEFINED2,                                                         // 0xE8
    {0, 0, 0, 0, False, TYPE_1, "JP (%s)",           op_jp_hl        }, // 0xE9
-   UNDEFINED,                                                          // 0xEA
-   UNDEFINED,                                                          // 0xEB
-   UNDEFINED,                                                          // 0xEC
-   UNDEFINED,                                                          // 0xED
-   UNDEFINED,                                                          // 0xEE
-   UNDEFINED,                                                          // 0xEF
+   UNDEFINED2,                                                         // 0xEA
+   UNDEFINED2,                                                         // 0xEB
+   UNDEFINED2,                                                         // 0xEC
+   UNDEFINED2,                                                         // 0xED
+   UNDEFINED2,                                                         // 0xEE
+   UNDEFINED2,                                                         // 0xEF
 
-   UNDEFINED,                                                          // 0xF0
-   UNDEFINED,                                                          // 0xF1
-   UNDEFINED,                                                          // 0xF2
-   UNDEFINED,                                                          // 0xF3
-   UNDEFINED,                                                          // 0xF4
-   UNDEFINED,                                                          // 0xF5
-   UNDEFINED,                                                          // 0xF7
-   UNDEFINED,                                                          // 0xF7
-   UNDEFINED,                                                          // 0xF8
+   UNDEFINED2,                                                         // 0xF0
+   UNDEFINED2,                                                         // 0xF1
+   UNDEFINED2,                                                         // 0xF2
+   UNDEFINED2,                                                         // 0xF3
+   UNDEFINED2,                                                         // 0xF4
+   UNDEFINED2,                                                         // 0xF5
+   UNDEFINED2,                                                         // 0xF7
+   UNDEFINED2,                                                         // 0xF7
+   UNDEFINED2,                                                         // 0xF8
    {0, 0, 0, 0, False, TYPE_1, "LD SP,%s",          op_load_sp_hl   }, // 0xF9
-   UNDEFINED,                                                          // 0xFA
-   UNDEFINED,                                                          // 0xFB
-   UNDEFINED,                                                          // 0xFC
-   UNDEFINED,                                                          // 0xFD
-   UNDEFINED,                                                          // 0xFE
-   UNDEFINED                                                           // 0xFF
+   UNDEFINED2,                                                         // 0xFA
+   UNDEFINED2,                                                         // 0xFB
+   UNDEFINED2,                                                         // 0xFC
+   UNDEFINED2,                                                         // 0xFD
+   UNDEFINED2,                                                         // 0xFE
+   UNDEFINED2                                                          // 0xFF
 };
 
 // Instructions with DD CB or FD CB prefix.

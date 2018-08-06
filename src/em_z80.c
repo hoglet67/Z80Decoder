@@ -456,6 +456,13 @@ static void set_sign_zero2(int result, int operand) {
    flag_f3 = (operand >> 3) & 1;
 }
 
+static void set_sign_zero_undefined() {
+   flag_s  = -1;
+   flag_z  = -1;
+   flag_f5 = -1;
+   flag_f3 = -1;
+}
+
 static void set_flags_undefined() {
    flag_s  = -1;
    flag_z  = -1;
@@ -1161,18 +1168,24 @@ static void op_add_hl_rr(InstrType *instr) {
 static void op_inc_r(InstrType *instr) {
    int reg_id = get_r_id((opcode >> 3) & 7);
    int *reg = reg_ptr[reg_id];
-   int result = ((*reg) + 1) & 0xff;
-   set_sign_zero(result);
-   flag_h  = (result & 0x0f) == 0;
-   flag_pv = (result == 0x80);
-   flag_n  = 0;
-   if (reg_id == ID_MEMORY) {
-      if (arg_write != result) {
-         failflag = FAIL_ERROR;
+   if (*reg >= 0) {
+      int result = ((*reg) + 1) & 0xff;
+      set_sign_zero(result);
+      flag_h  = (result & 0x0f) == 0;
+      flag_pv = (result == 0x80);
+      if (reg_id == ID_MEMORY) {
+         if (arg_write != result) {
+            failflag = FAIL_ERROR;
+         }
+      } else {
+         *reg = result;
       }
    } else {
-      *reg = result;
+      set_sign_zero_undefined();
+      flag_h = -1;
+      flag_pv = -1;
    }
+   flag_n  = 0;
    update_pc();
 }
 
@@ -1204,18 +1217,24 @@ static void op_inc_idx_disp(InstrType *instr) {
 static void op_dec_r(InstrType *instr) {
    int reg_id = get_r_id((opcode >> 3) & 7);
    int *reg = reg_ptr[reg_id];
-   int result = ((*reg) - 1) & 0xff;
-   set_sign_zero(result);
-   flag_h  = (result & 0x0f) == 0x0f;
-   flag_pv = (result == 0x7f);
-   flag_n  = 1;
-   if (reg_id == ID_MEMORY) {
-      if (arg_write != result) {
-         failflag = FAIL_ERROR;
+   if (*reg >= 0) {
+      int result = ((*reg) - 1) & 0xff;
+      set_sign_zero(result);
+      flag_h  = (result & 0x0f) == 0x0f;
+      flag_pv = (result == 0x7f);
+      if (reg_id == ID_MEMORY) {
+         if (arg_write != result) {
+            failflag = FAIL_ERROR;
+         }
+      } else {
+         *reg = result;
       }
    } else {
-      *reg = result;
+      set_sign_zero_undefined();
+      flag_h = -1;
+      flag_pv = -1;
    }
+   flag_n  = 1;
    update_pc();
 }
 
@@ -1271,10 +1290,7 @@ static void op_rrd(InstrType *instr) {
       set_sign_zero(reg_a);
       flag_pv = partab[reg_a];
    } else {
-      flag_s  = -1;
-      flag_z  = -1;
-      flag_f5 = -1;
-      flag_f3 = -1;
+      set_sign_zero_undefined();
       flag_pv = -1;
    }
    flag_h = 0;
@@ -1290,10 +1306,7 @@ static void op_rld(InstrType *instr) {
       set_sign_zero(reg_a);
       flag_pv = partab[reg_a];
    } else {
-      flag_s  = -1;
-      flag_z  = -1;
-      flag_f5 = -1;
-      flag_f3 = -1;
+      set_sign_zero_undefined();
       flag_pv = -1;
    }
    flag_h = 0;
@@ -1899,11 +1912,8 @@ static void op_cpd_cpi(InstrType *instr) {
       flag_f5 = (n >> 1) & 1;
       flag_f3 = (n >> 3) & 1;
    } else {
-      flag_s  = -1;
-      flag_z  = -1;
+      set_sign_zero_undefined();
       flag_h  = -1;
-      flag_f5 = -1;
-      flag_f3 = -1;
    }
    flag_n = 1;
    if (reg_b >= 0 && reg_c >= 0) {
@@ -1948,25 +1958,16 @@ static void op_bit(InstrType *instr) {
       switch (major_op) {
       case 0:
          // Rotate / Shift
-         flag_s  = -1;
-         flag_z  = -1;
-         flag_f5 = -1;
+         set_flags_undefined();
          flag_h  =  0;
-         flag_f3 = -1;
-         flag_pv = -1;
          flag_n  =  0;
-         flag_c = -1;
          break;
 
       case 1:
          // BIT
-         flag_s  = -1;
-
-         flag_z  = -1;
-         flag_f5 = -1;
-         flag_h  =  1;
-         flag_f3 = -1;
+         set_sign_zero_undefined();
          flag_pv = -1;
+         flag_h  =  1;
          flag_n  =  0;
          break;
 

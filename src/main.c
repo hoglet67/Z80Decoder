@@ -241,6 +241,7 @@ typedef enum {
 typedef struct {
    Z80CycleType cycle;
    int data;
+   int num_samples;
    int instr_cycles;
    int wait_cycles;
    int sample_index;
@@ -656,7 +657,7 @@ void decode_cycle(Z80CycleSummaryType *cycle_q) {
             }
 
             if (arguments.debug > 1) {
-               int end = cycle_q->instr_cycles;
+               int end = cycle_q->num_samples;
                for (int i = 0; i < end; i++) {
                   uint16_t sample = sample_buffer[(cycle_q->sample_index + i) & (SAMPLE_BUFSIZE - 1)];
                   Z80CycleType cycle = get_cycle_type(sample);
@@ -880,6 +881,7 @@ void decode_sample(int sample) {
    }
 
    // Increment cycles counts on the falling edge of Phi, where wait is accurate
+   cycle_summary.num_samples++;
    if (arguments.idx_phi < 0 || (prev_phi && !phi)) {
       cycle_summary.instr_cycles++;
       if (prev_wait == 0) {
@@ -896,6 +898,7 @@ void decode_sample(int sample) {
    // At the beginning of the next cycle pass this on to the decoder, so the cycle count is correct
    if (cycle_start) {
       lookahead_decode_cycle(&cycle_summary);
+      cycle_summary.num_samples = 0;
       cycle_summary.instr_cycles = 0;
       cycle_summary.wait_cycles  = 0;
       cycle_summary.sample_index = sample_index;

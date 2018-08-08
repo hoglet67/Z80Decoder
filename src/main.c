@@ -8,13 +8,17 @@
 
 #define MAX_INSTR_LEN 5
 
-#define RESET_THRESHOLD 1000
-
-#define BUFSIZE 8192
-
 #define DEPTH 4
 
-uint16_t buffer[BUFSIZE];
+#define RESET_THRESHOLD 1000
+
+#define READ_BUFSIZE 8192
+
+#define SAMPLE_BUFSIZE 8192
+
+uint16_t buffer[READ_BUFSIZE];
+
+uint16_t sample_buffer[SAMPLE_BUFSIZE];
 
 // Whether to emulate each decoded instruction, to track additional state (registers and flags)
 int do_emulate = 0;
@@ -233,6 +237,16 @@ typedef enum {
    ANN_WOP2
 } AnnType;
 
+
+typedef struct {
+   Z80CycleType cycle;
+   int data;
+   int instr_cycles;
+   int wait_cycles;
+   int sample_index;
+} Z80CycleSummaryType;
+
+
 int prefix             = 0;
 int opcode             = 0;
 int arg_dis            = 0;
@@ -258,7 +272,7 @@ static Z80StateType state;
 // Indicates the end of an instruction execution
 #define BIT_INSTRUCTION 4
 
-int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
+int decode_instruction(Z80CycleSummaryType *cycle_q) {
 
    static int want_dis    = 0;
    static int want_imm    = 0;
@@ -268,8 +282,8 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
    static int conditional = False;
    static char warning_buffer[80];
 
-   int cycle = *cycle_q;
-   int data = *data_q;
+   int cycle = cycle_q->cycle;
+   int data  = cycle_q->data;
 
    int ret = 0;
 
@@ -313,11 +327,11 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
          opcode = data;
          instruction = &z80_interrupt_int;
       } else if (prefix == 0 &&
-                 *(cycle_q + 1) == C_MEMWR &&
-                 *(cycle_q + 2) == C_MEMWR &&
-                 *(cycle_q + 3) == C_FETCH &&
-                 z80_get_pc() == ((*(data_q + 1) << 8) + *(data_q + 2)) &&
-                 *(data_q + 3) == 0x08) { // EX AF, AF'
+                 (cycle_q + 1)->cycle == C_MEMWR &&
+                 (cycle_q + 2)->cycle == C_MEMWR &&
+                 (cycle_q + 3)->cycle == C_FETCH &&
+                 z80_get_pc() == (((cycle_q + 1)->data << 8) + (cycle_q + 2)->data) &&
+                 (cycle_q + 3)->data == 0x08) { // EX AF, AF'
          // Treat an NMI interrupt as just another instruction
          prefix = 0;
          instr_len = 0;
@@ -581,20 +595,116 @@ int decode_instruction(Z80CycleType *cycle_q, int *data_q) {
    return ret;
 }
 
-void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count, int *wait_count) {
+Z80CycleType get_cycle_type(uint16_t sample) {
+   // Extract the control signals from the sample
+   int m1   = (sample >> arguments.idx_m1  ) & 1;
+   int rd   = (sample >> arguments.idx_rd  ) & 1;
+   int wr   = (sample >> arguments.idx_wr  ) & 1;
+   int mreq = (sample >> arguments.idx_mreq) & 1;
+   int iorq = (sample >> arguments.idx_iorq) & 1;
 
+   // Determine the cycle type
+   Z80CycleType cycle = C_NONE;
+   if (mreq == 0) {
+      if (rd == 0) {
+         if (m1 == 0) {
+            cycle = C_FETCH;
+         } else {
+            cycle = C_MEMRD;
+         }
+      } else if (wr == 0) {
+         cycle = C_MEMWR;
+      }
+   } else if (iorq == 0) {
+      if (m1 == 0) {
+         cycle = C_INTACK;
+      } else if (rd == 0) {
+         cycle = C_IORD;
+      } else if (wr == 0) {
+         cycle = C_IOWR;
+      }
+   }
+   return cycle;
+}
+
+
+void decode_cycle(Z80CycleSummaryType *cycle_q) {
+
+   static int m_cycle = 0;
    static int instr_cycles = 0;
    static int wait_cycles = 0;
    int ret;
    int colon;
    char target[10];
 
-   instr_cycles += *cycle_count;
-   wait_cycles += *wait_count;
-
    do {
 
-      ret = decode_instruction(cycle_q, data_q);
+      ret = decode_instruction(cycle_q);
+
+      // Output the samples for this cycle, as long as they are processed
+      if (!(ret & BIT_UNPROCESSED)) {
+
+         instr_cycles += cycle_q->instr_cycles;
+         wait_cycles += cycle_q->wait_cycles;
+
+         if (arguments.debug > 0) {
+
+            if (cycle_q->cycle == C_FETCH) {
+               m_cycle = 1;
+            } else {
+               m_cycle++;
+            }
+
+            if (arguments.debug > 1) {
+               int end = cycle_q->instr_cycles;
+               for (int i = 0; i < end; i++) {
+                  uint16_t sample = sample_buffer[(cycle_q->sample_index + i) & (SAMPLE_BUFSIZE - 1)];
+                  Z80CycleType cycle = get_cycle_type(sample);
+                  int m1   = (sample >> arguments.idx_m1  ) & 1;
+                  int rd   = (sample >> arguments.idx_rd  ) & 1;
+                  int wr   = (sample >> arguments.idx_wr  ) & 1;
+                  int mreq = (sample >> arguments.idx_mreq) & 1;
+                  int iorq = (sample >> arguments.idx_iorq) & 1;
+                  int wait = (sample >> arguments.idx_wait) & 1;
+                  int rst  = (sample >> arguments.idx_rst ) & 1;
+                  int phi  = (sample >> arguments.idx_phi ) & 1;
+                  int data = (sample >> arguments.idx_data) & 255;
+                  printf("M%d %6s %d %d %d %d %d %d %d %d %02x ",
+                         m_cycle, cycle_names[cycle],
+                         m1, rd, wr, mreq, iorq, wait, rst, phi, data);
+                  if (i < end - 1) {
+                     printf("\n");
+                  }
+               }
+            } else {
+               printf("M%d %6s %02x %2d/%2d",
+                      m_cycle, cycle_names[cycle_q->cycle],
+                      cycle_q->data, cycle_q->instr_cycles, cycle_q->wait_cycles);
+            }
+
+            switch (ann_dasm) {
+            case ANN_ROP1:
+               printf(": Rd=%02X", arg_read);
+               ann_dasm = ANN_NONE;
+               break;
+            case ANN_ROP2:
+               printf(": Rd=%04X", arg_read);
+               ann_dasm = ANN_NONE;
+               break;
+            case ANN_WOP1:
+               printf(": Wr=%02X", arg_write);
+               ann_dasm = ANN_NONE;
+               break;
+            case ANN_WOP2:
+               printf(": Wr=%04X", arg_write);
+               ann_dasm = ANN_NONE;
+               break;
+            default:
+               break;
+            }
+            printf("\n");
+         }
+      }
 
       // Handle Warnings
       if (ann_dasm == ANN_WARN) {
@@ -603,6 +713,10 @@ void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count, int *wai
       }
 
       if (ret & BIT_INSTRUCTION) {
+
+         if (arguments.debug > 0) {
+            printf("\n");
+         }
 
          if (instr_cycles + wait_cycles > RESET_THRESHOLD) {
             z80_reset();
@@ -683,9 +797,6 @@ void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count, int *wai
             if (colon) {
                printf(" : ");
             }
-            if (ret & BIT_UNPROCESSED) {
-               instr_cycles--;
-            }
             printf("%2d/%2d", instr_cycles, wait_cycles);
             colon = 1;
          }
@@ -715,6 +826,9 @@ void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count, int *wai
          }
          if (colon) {
             printf("\n");
+            if (arguments.debug > 0) {
+               printf("\n");
+            }
          }
 
          // Reset the instruction variables
@@ -726,70 +840,38 @@ void decode_cycle(Z80CycleType *cycle_q, int *data_q, int *cycle_count, int *wai
 
 }
 
-void lookahead_decode_cycle(Z80CycleType cycle, int data, int instr_cycles, int wait_cycles) {
-   static Z80CycleType cycle_q[DEPTH];
-   static int data_q[DEPTH];
-   static int instr_cycles_q[DEPTH];
-   static int wait_cycles_q[DEPTH];
+void lookahead_decode_cycle(Z80CycleSummaryType *cycle_summary) {
+   static Z80CycleSummaryType cycle_q[DEPTH];
    static int fill = 0;
-
-   cycle_q[fill] = cycle;
-   data_q[fill] = data;
-   instr_cycles_q[fill] = instr_cycles;
-   wait_cycles_q[fill] = wait_cycles;
+   memcpy(cycle_q + fill, cycle_summary, sizeof(Z80CycleSummaryType));
    if (fill < DEPTH - 1) {
       fill++;
    } else {
-      decode_cycle(cycle_q, data_q, instr_cycles_q, wait_cycles_q);
-      for (int i = 0; i < DEPTH - 1; i++) {
-         cycle_q[i] = cycle_q[i + 1];
-         data_q[i] = data_q[i + 1];
-         instr_cycles_q[i] = instr_cycles_q[i + 1];
-         wait_cycles_q[i] = wait_cycles_q[i + 1];
-      }
+      decode_cycle(cycle_q);
+      memmove(cycle_q, cycle_q + 1, sizeof(Z80CycleSummaryType) * (DEPTH - 1));
    }
 }
 
 
-void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int rst, int phi, int data) {
+void decode_sample(int sample) {
    static Z80CycleType prev_cycle    = C_NONE;
-   static Z80CycleType latched_cycle = C_NONE;
+   static int sample_index           = 0;
    static int prev_data              = 0;
-   static int latched_data           = 0;
-   static int prev_m1                = 0;
-   static int prev_rd                = 0;
-   static int prev_wr                = 0;
-   static int prev_mreq              = 0;
-   static int prev_iorq              = 0;
-   static int prev_wait              = 0;
-   static int prev_rst               = 0;
    static int prev_phi               = 0;
-   static int instr_cycles           = 0;
-   static int wait_cycles            = 0;
+   static int prev_wait              = 0;
+   static Z80CycleSummaryType cycle_summary;
 
-   Z80CycleType cycle = C_NONE;
-   if (mreq == 0) {
-      if (rd == 0) {
-         if (m1 == 0) {
-            cycle = C_FETCH;
-         } else {
-            cycle = C_MEMRD;
-         }
-      } else if (wr == 0) {
-         cycle = C_MEMWR;
-      }
-   } else if (iorq == 0) {
-      if (m1 == 0) {
-         cycle = C_INTACK;
-      } else if (rd == 0) {
-         cycle = C_IORD;
-      } else if (wr == 0) {
-         cycle = C_IOWR;
-      }
-   }
+   int wait = (sample >> arguments.idx_wait) & 1;
+   int phi  = (sample >> arguments.idx_phi ) & 1;
+   int data = (sample >> arguments.idx_data) & 255;
 
-   int cycle_start = (cycle != prev_cycle && cycle != C_NONE);
-   int cycle_end = (cycle != prev_cycle && cycle == C_NONE);
+   // Determine the cycle type
+   Z80CycleType cycle = get_cycle_type(sample);
+   int cycle_start    = (cycle != prev_cycle && cycle != C_NONE);
+   int cycle_end      = (cycle != prev_cycle && cycle == C_NONE);
+
+   // Store the sample
+   sample_buffer[sample_index] = sample;
 
    if (cycle != prev_cycle && cycle != C_NONE && prev_cycle != C_NONE) {
       printf("WARNING: unexpected transition from %s to %s\n",
@@ -797,75 +879,34 @@ void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int rst
              cycle_names[cycle]);
    }
 
-   if (arguments.debug > 1 || (arguments.debug == 1 && cycle_end)) {
-      printf("%6s %d %d %d %d %d %d %d %d %02x %c ",
-             cycle_names[prev_cycle],
-             prev_m1,
-             prev_rd,
-             prev_wr,
-             prev_mreq,
-             prev_iorq,
-             prev_wait,
-             prev_rst,
-             prev_phi,
-             prev_data,
-             cycle_end ? '*' : '.'
-         );
-
-      switch (ann_dasm) {
-      case ANN_ROP1:
-         printf(": Rd=%02X", arg_read);
-         ann_dasm = ANN_NONE;
-         break;
-      case ANN_ROP2:
-         printf(": Rd=%04X", arg_read);
-         ann_dasm = ANN_NONE;
-         break;
-      case ANN_WOP1:
-         printf(": Wd=%02X", arg_write);
-         ann_dasm = ANN_NONE;
-         break;
-      case ANN_WOP2:
-         printf(": Wd=%04X", arg_write);
-         ann_dasm = ANN_NONE;
-         break;
-      default:
-         break;
-      }
-      printf("\n");
-   }
-
    // Increment cycles counts on the falling edge of Phi, where wait is accurate
    if (arguments.idx_phi < 0 || (prev_phi && !phi)) {
-      instr_cycles++;
+      cycle_summary.instr_cycles++;
       if (prev_wait == 0) {
-         wait_cycles++;
+         cycle_summary.wait_cycles++;
       }
    }
 
    // At the end of a cycle, latch the cycle type and data
    if (cycle_end) {
-      latched_cycle = prev_cycle;
-      latched_data  = prev_data;
+      cycle_summary.cycle = prev_cycle;
+      cycle_summary.data  = prev_data;
    }
 
    // At the beginning of the next cycle pass this on to the decoder, so the cycle count is correct
    if (cycle_start) {
-      lookahead_decode_cycle(latched_cycle, latched_data, instr_cycles, wait_cycles);
-      instr_cycles = 0;
-      wait_cycles  = 0;
+      lookahead_decode_cycle(&cycle_summary);
+      cycle_summary.instr_cycles = 0;
+      cycle_summary.wait_cycles  = 0;
+      cycle_summary.sample_index = sample_index;
    }
 
-   prev_cycle = cycle;
-   prev_m1    = m1;
-   prev_rd    = rd;
-   prev_wr    = wr;
-   prev_mreq  = mreq;
-   prev_iorq  = iorq;
-   prev_wait  = wait;
-   prev_rst   = rst;
-   prev_phi   = phi;
-   prev_data  = data;
+   prev_cycle   = cycle;
+   prev_wait    = wait;
+   prev_phi     = phi;
+   prev_data    = data;
+   sample_index = (sample_index + 1) & (SAMPLE_BUFSIZE - 1);
+
 }
 
 
@@ -876,61 +917,33 @@ void decode_sample(int m1, int rd, int wr, int mreq, int iorq, int wait, int rst
 
 void decode(FILE *stream) {
 
-   // Pin mappings into the 16 bit words
-   int idx_data  = arguments.idx_data;
-   int idx_m1    = arguments.idx_m1  ;
-   int idx_rd    = arguments.idx_rd  ;
-   int idx_wr    = arguments.idx_wr  ;
-   int idx_mreq  = arguments.idx_mreq;
-   int idx_iorq  = arguments.idx_iorq;
-   int idx_wait  = arguments.idx_wait;
-   int idx_rst   = arguments.idx_rst;
-   int idx_phi   = arguments.idx_phi ;
-
    int num;
+   uint16_t sample;
 
-   // The previous sample of the 16-bit capture (async sampling only)
-   uint16_t sample       = -1;
-
-   int m1;
-   int rd;
-   int wr;
-   int mreq;
-   int iorq;
-   int wait;
-   int rst;
-   int phi;
-   int data;
-
-   // Initialize everything to unknown
    z80_init();
 
-   while ((num = fread(buffer, sizeof(uint16_t), BUFSIZE, stream)) > 0) {
+   while ((num = fread(buffer, sizeof(uint16_t), READ_BUFSIZE, stream)) > 0) {
 
       uint16_t *sampleptr = &buffer[0];
 
       while (num-- > 0) {
 
-         sample       = *sampleptr++;
+         sample = *sampleptr++;
 
-         m1   = (sample >> idx_m1  ) & 1;
-         rd   = (sample >> idx_rd  ) & 1;
-         wr   = (sample >> idx_wr  ) & 1;
-         mreq = (sample >> idx_mreq) & 1;
-         iorq = (sample >> idx_iorq) & 1;
-         wait = (sample >> idx_wait) & 1;
-         rst  = (sample >> idx_rst ) & 1;
-         phi  = (sample >> idx_phi ) & 1;
-         data = (sample >> idx_data) & 255;
-
-         decode_sample(m1, rd, wr, mreq, iorq, wait, rst, phi, data);
+         decode_sample(sample);
 
       }
    }
 
    // Flush the lookhead decoder with NOPs
    for (int i = 0; i < DEPTH - 1; i++) {
-      lookahead_decode_cycle(C_FETCH, 0, 4, 0);
+      Z80CycleSummaryType dummy;
+      dummy.cycle = C_FETCH;
+      dummy.data = 0;
+      dummy.instr_cycles = 4;
+      dummy.wait_cycles  = 0;
+      dummy.sample_index = 0; // TOOD
+      lookahead_decode_cycle(&dummy);
    }
 
 }

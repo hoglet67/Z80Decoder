@@ -1732,7 +1732,7 @@ static void op_out_c_r(InstrType *instr) {
    if (reg_id == 6) {
       // reg_id 6 is used for OUT (C),0
       if (arg_write != 0) {
-         failflag = 0;
+         failflag = 1;
       }
    } else {
       int *reg = reg_ptr[reg_id];

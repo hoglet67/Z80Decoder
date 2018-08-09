@@ -787,17 +787,28 @@ static void op_interrupt_int(InstrType *instr) {
 static void op_push(InstrType *instr) {
    int reg_id = get_rr_id();
    int reg = read_reg_pair2(reg_id);
-   if (reg >= 0 && reg != arg_write) {
-      failflag = FAIL_ERROR;
 #ifdef DEBUG_SCF_CCF
+   // 0xF5 = PUSH AF
+   if (tmp_op >= 0 && opcode == 0xf5 && flag_f5 >= 0 && flag_f3 >= 0) {
       printf("\n");
-      printf("xxx %s old: %d %d; q=%d a=", (tmp_op ? "SCF" : "CCF"), tmp_f5, tmp_f3, tmp_q);
+      printf("%s old: %d %d; a=", (tmp_op ? "SCF" : "CCF"), tmp_f5, tmp_f3);
       for (int i = 7; i >= 0; i--) {
          printf("%d", (tmp_a >> i) & 1);
       }
-      printf(" new: %d %d", (arg_write >> 5) & 1, (arg_write >> 3) & 1);
-      printf("\n");
+      printf("; q=%d", tmp_q);
+      printf("; exp: %d %d", flag_f5, flag_f3);
+      printf("; act: %d %d", (arg_write >> 5) & 1, (arg_write >> 3) & 1);
+      if ((((arg_write >> 5) & 1) == flag_f5) && (((arg_write >> 3) & 1) == flag_f3)) {
+         printf( " xxx pass\n");
+      } else {
+         printf( " xxx fail\n");
+
+      }
+      tmp_op = -1;
+   }
 #endif
+   if (reg >= 0 && reg != arg_write) {
+      failflag = FAIL_ERROR;
    }
    write_reg_pair2(reg_id, arg_write);
    if (reg_sp >= 0) {
@@ -1576,6 +1587,9 @@ static void scf_ccf_set_f5_f3_flags() {
    tmp_f5 = flag_f5;
    tmp_f3 = flag_f3;
    tmp_q  = reg_q;
+   // SCF = 0x37
+   // CCF = 0x3F
+   tmp_op = ((opcode >> 3) & 1) ^ 1;
 #endif
    // Default to setting the flags as unknown
    int new_flag_f5 = -1;
@@ -1602,7 +1616,7 @@ static void scf_ccf_set_f5_f3_flags() {
    case CPU_CMOS:
       if (reg_a >= 0 && reg_q >= 0) {
          if (reg_q) {
-            new_flag_f5 = (reg_a >> 5) & 1;;
+            new_flag_f5 = (reg_a >> 5) & 1;
          } else {
             new_flag_f5 = flag_f5;
          }
@@ -1620,9 +1634,6 @@ static void op_misc_scf(InstrType *instr) {
    flag_c = 1;
    flag_n = 0;
    scf_ccf_set_f5_f3_flags();
-#ifdef DEBUG_SCF_CCF
-   tmp_op = 1;
-#endif
    update_pc();
    // Update undocumented Q register
    flags_updated();
@@ -1635,9 +1646,6 @@ static void op_misc_ccf(InstrType *instr) {
    }
    flag_n = 0;
    scf_ccf_set_f5_f3_flags();
-#ifdef DEBUG_SCF_CCF
-   tmp_op = 0;
-#endif
    update_pc();
    // Update undocumented Q register
    flags_updated();

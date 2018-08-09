@@ -4,7 +4,6 @@
 // Copyright (C) 2014 Daniel Elstner <daniel.kitta@gmail.com>
 //
 
-
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
@@ -13,6 +12,16 @@
 #define UNDEFINED1 {0, 0, 0, 0, False, TYPE_0, "???", op_nop}
 
 #define UNDEFINED2 {-1, -1, -1, -1, False, TYPE_0, "???", NULL}
+
+// #define DEBUG_SCF_CCF
+
+#ifdef DEBUG_SCF_CCF
+int tmp_a;
+int tmp_f5;
+int tmp_f3;
+int tmp_q;
+int tmp_op;
+#endif
 
 // The following global variables are available, from the instruction decoder
 extern int prefix;
@@ -27,6 +36,9 @@ extern int failflag;
 // ===================================================================
 // Emulation registers
 // ==================================================================
+
+// The CPU type
+static int cpu;
 
 // Program counter
 static int reg_pc;
@@ -86,6 +98,7 @@ static int reg_im;
 static int reg_i;
 static int reg_r;
 static int reg_memptr;
+static int reg_q;
 static int halted;
 
 #define IM_MODE_0    0
@@ -272,7 +285,8 @@ int z80_get_pc() {
 // Emulation reset / interrupt
 // ===================================================================
 
-void z80_init() {
+void z80_init(int cpu_type) {
+   cpu = cpu_type;
    // Defined on reset
    reg_pc      = -1;
    reg_sp      = -1;
@@ -318,6 +332,7 @@ void z80_init() {
    reg_iyh     = -1;
    reg_iyl     = -1;
    reg_memptr  = -1;
+   reg_q       = -1;
    halted      =  0;
 }
 
@@ -367,6 +382,7 @@ void z80_reset() {
    reg_iyh     = -1;
    reg_iyl     = -1;
    reg_memptr  = -1;
+   reg_q       = -1;
    halted      =  0;
 }
 
@@ -671,6 +687,14 @@ static void update_memptr_idx_disp() {
    }
 }
 
+static inline void flags_updated() {
+   reg_q = 1;
+}
+
+static inline void flags_not_updated() {
+   reg_q = 0;
+}
+
 // ===================================================================
 // Emulated instructions - HALT/NOP/INT/NMI
 // ===================================================================
@@ -682,10 +706,14 @@ int z80_halted() {
 static void op_halt(InstrType *instr) {
    update_pc();
    halted = 1;
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_nop(InstrType *instr) {
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_interrupt_nmi(InstrType *instr) {
@@ -701,7 +729,8 @@ static void op_interrupt_nmi(InstrType *instr) {
    }
    // Update undocumented memptr register
    update_memptr(reg_pc);
-
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_interrupt_int(InstrType *instr) {
@@ -747,6 +776,8 @@ static void op_interrupt_int(InstrType *instr) {
    }
    // Update undocumented memptr register
    update_memptr(reg_pc);
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 // ===================================================================
@@ -758,12 +789,23 @@ static void op_push(InstrType *instr) {
    int reg = read_reg_pair2(reg_id);
    if (reg >= 0 && reg != arg_write) {
       failflag = FAIL_ERROR;
+#ifdef DEBUG_SCF_CCF
+      printf("\n");
+      printf("xxx %s old: %d %d; q=%d a=", (tmp_op ? "SCF" : "CCF"), tmp_f5, tmp_f3, tmp_q);
+      for (int i = 7; i >= 0; i--) {
+         printf("%d", (tmp_a >> i) & 1);
+      }
+      printf(" new: %d %d", (arg_write >> 5) & 1, (arg_write >> 3) & 1);
+      printf("\n");
+#endif
    }
    write_reg_pair2(reg_id, arg_write);
    if (reg_sp >= 0) {
       reg_sp = (reg_sp - 2) & 0xffff;
    }
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_pop(InstrType *instr) {
@@ -773,6 +815,8 @@ static void op_pop(InstrType *instr) {
       reg_sp = (reg_sp + 2) & 0xffff;
    }
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 // ===================================================================
@@ -847,6 +891,8 @@ static void op_call(InstrType *instr) {
    }
    // Update undocumented memptr register
    update_memptr(arg_imm);
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_call_cond(InstrType *instr) {
@@ -864,6 +910,8 @@ static void op_call_cond(InstrType *instr) {
    }
    // Update undocumented memptr register
    update_memptr(arg_imm);
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_ret(InstrType *instr) {
@@ -873,12 +921,16 @@ static void op_ret(InstrType *instr) {
    }
    // Update undocumented memptr register
    update_memptr(reg_pc);
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_retn(InstrType *instr) {
    op_ret(instr);
    reg_iff1 = reg_iff2;
    // Also used for reti, as there is no difference from an emulation perspective
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_ret_cond(InstrType *instr) {
@@ -895,6 +947,8 @@ static void op_ret_cond(InstrType *instr) {
       reg_sp = -1;
       update_memptr(-1);
    }
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_jr(InstrType *instr) {
@@ -913,18 +967,24 @@ static void op_jr(InstrType *instr) {
       // Update undocumented memptr register
       update_memptr(-1);
    }
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_jp(InstrType *instr) {
    reg_pc = arg_imm;
    // Update undocumented memptr register
    update_memptr(arg_imm);
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_jp_hl(InstrType *instr) {
    int rr_id = get_hl_or_idx_id();
    reg_pc = read_reg_pair1(rr_id);
    // Note: undocumented memptr does not change in this case
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_jp_cond(InstrType *instr) {
@@ -942,6 +1002,8 @@ static void op_jp_cond(InstrType *instr) {
    }
    // Update undocumented memptr register
    update_memptr(arg_imm);
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_djnz(InstrType *instr) {
@@ -962,6 +1024,8 @@ static void op_djnz(InstrType *instr) {
       // Update undocumented memptr register
       update_memptr(-1);
    }
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_rst(InstrType *instr) {
@@ -976,6 +1040,8 @@ static void op_rst(InstrType *instr) {
    }
    // Update undocumented memptr register
    update_memptr(reg_pc);
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 // ===================================================================
@@ -1104,6 +1170,8 @@ static void op_alu(InstrType *instr) {
    if ((prefix == 0xdd || prefix == 0xfd) && r_id == ID_MEMORY) {
       update_memptr_idx_disp();
    }
+   // Update undocumented Q register
+   flags_updated();
 }
 
 static void op_neg(InstrType *instr) {
@@ -1122,6 +1190,8 @@ static void op_neg(InstrType *instr) {
    }
    flag_n = 1;
    update_pc();
+   // Update undocumented Q register
+   flags_updated();
 }
 
 static void op_adc_hl_rr(InstrType *instr) {
@@ -1146,6 +1216,8 @@ static void op_adc_hl_rr(InstrType *instr) {
    // Update undocumented memptr register
    update_memptr_inc(op1);
    update_pc();
+   // Update undocumented Q register
+   flags_updated();
 }
 
 static void op_sbc_hl_rr(InstrType *instr) {
@@ -1170,6 +1242,8 @@ static void op_sbc_hl_rr(InstrType *instr) {
    // Update undocumented memptr register
    update_memptr_inc(op1);
    update_pc();
+   // Update undocumented Q register
+   flags_updated();
 }
 
 
@@ -1195,6 +1269,8 @@ static void op_add_hl_rr(InstrType *instr) {
    // Update undocumented memptr register
    update_memptr_inc(op1);
    update_pc();
+   // Update undocumented Q register
+   flags_updated();
 }
 
 
@@ -1220,6 +1296,8 @@ static void op_inc_r(InstrType *instr) {
    }
    flag_n  = 0;
    update_pc();
+   // Update undocumented Q register
+   flags_updated();
 }
 
 static void op_inc_rr(InstrType *instr) {
@@ -1231,6 +1309,8 @@ static void op_inc_rr(InstrType *instr) {
       write_reg_pair1(reg_id, -1);
    }
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_inc_idx_disp(InstrType *instr) {
@@ -1245,6 +1325,8 @@ static void op_inc_idx_disp(InstrType *instr) {
    update_pc();
    // Update undocumented memptr register
    update_memptr_idx_disp();
+   // Update undocumented Q register
+   flags_updated();
 }
 
 static void op_dec_r(InstrType *instr) {
@@ -1269,6 +1351,8 @@ static void op_dec_r(InstrType *instr) {
    }
    flag_n  = 1;
    update_pc();
+   // Update undocumented Q register
+   flags_updated();
 }
 
 static void op_dec_rr(InstrType *instr) {
@@ -1280,6 +1364,8 @@ static void op_dec_rr(InstrType *instr) {
       write_reg_pair1(reg_id, -1);
    }
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_dec_idx_disp(InstrType *instr) {
@@ -1294,6 +1380,8 @@ static void op_dec_idx_disp(InstrType *instr) {
    update_pc();
    // Update undocumented memptr register
    update_memptr_idx_disp();
+   // Update undocumented Q register
+   flags_updated();
 }
 
 // ===================================================================
@@ -1304,12 +1392,16 @@ static void op_di(InstrType *instr) {
    reg_iff1 = 0;
    reg_iff2 = 0;
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_ei(InstrType *instr) {
    reg_iff1 = 1;
    reg_iff2 = 1;
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_im(InstrType *instr) {
@@ -1325,6 +1417,8 @@ static void op_im(InstrType *instr) {
       break;
    }
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_rrd(InstrType *instr) {
@@ -1341,6 +1435,8 @@ static void op_rrd(InstrType *instr) {
    // Update undocumented memptr register
    int hl = read_reg_pair1(ID_RR_HL);
    update_memptr_inc(hl);
+   // Update undocumented Q register
+   flags_updated();
 }
 
 static void op_rld(InstrType *instr) {
@@ -1357,6 +1453,8 @@ static void op_rld(InstrType *instr) {
    // Update undocumented memptr register
    int hl = read_reg_pair1(ID_RR_HL);
    update_memptr_inc(hl);
+   // Update undocumented Q register
+   flags_updated();
 }
 
 static void op_misc_rotate(InstrType *instr) {
@@ -1408,6 +1506,8 @@ static void op_misc_rotate(InstrType *instr) {
    flag_h = 0;
    flag_n = 0;
    update_pc();
+   // Update undocumented Q register
+   flags_updated();
 }
 
 static void op_misc_daa(InstrType *instr) {
@@ -1450,6 +1550,8 @@ static void op_misc_daa(InstrType *instr) {
       flag_pv = partab[reg_a];
    }
    update_pc();
+   // Update undocumented Q register
+   flags_updated();
 }
 
 static void op_misc_cpl(InstrType *instr) {
@@ -1464,23 +1566,66 @@ static void op_misc_cpl(InstrType *instr) {
    flag_h = 1;
    flag_n = 1;
    update_pc();
+   // Update undocumented Q register
+   flags_updated();
+}
+
+static void scf_ccf_set_f5_f3_flags() {
+#ifdef DEBUG_SCF_CCF
+   tmp_a  = reg_a;
+   tmp_f5 = flag_f5;
+   tmp_f3 = flag_f3;
+   tmp_q  = reg_q;
+#endif
+   // Default to setting the flags as unknown
+   int new_flag_f5 = -1;
+   int new_flag_f3 = -1;
+   // For some CPU types, we know the exact behaviour
+   switch (cpu) {
+   case CPU_NMOS_ZILOG:
+      if (reg_a >= 0 && reg_q >= 0) {
+         if (reg_q) {
+            new_flag_f5 = (reg_a >> 5) & 1;
+            new_flag_f3 = (reg_a >> 3) & 1;
+         } else {
+            new_flag_f5 = flag_f5 | ((reg_a >> 5) & 1);
+            new_flag_f3 = flag_f3 | ((reg_a >> 3) & 1);
+         }
+      }
+      break;
+   case CPU_NMOS_NEC:
+      if (reg_a >= 0) {
+         new_flag_f5 = (reg_a >> 5) & 1;
+         new_flag_f3 = (reg_a >> 3) & 1;
+      }
+      break;
+   case CPU_CMOS:
+      if (reg_a >= 0 && reg_q >= 0) {
+         if (reg_q) {
+            new_flag_f5 = (reg_a >> 5) & 1;;
+         } else {
+            new_flag_f5 = flag_f5;
+         }
+         new_flag_f3 = (reg_a >> 3) & 1;
+      }
+      break;
+   }
+   // Copy the newly calculated flags
+   flag_f5 = new_flag_f5;
+   flag_f3 = new_flag_f3;
 }
 
 static void op_misc_scf(InstrType *instr) {
    flag_h = 0;
    flag_c = 1;
    flag_n = 0;
-   // TODO: Investigate this case
-   flag_f5 = -1;
-   flag_f3 = -1;
-   //if (reg_a >= 0) {
-   //   flag_f5 = (reg_a >> 5) & 1;
-   //   flag_f3 = (reg_a >> 3) & 1;
-   //} else {
-   //   flag_f5 = -1;
-   //   flag_f3 = -1;
-   //}
+   scf_ccf_set_f5_f3_flags();
+#ifdef DEBUG_SCF_CCF
+   tmp_op = 1;
+#endif
    update_pc();
+   // Update undocumented Q register
+   flags_updated();
 }
 
 static void op_misc_ccf(InstrType *instr) {
@@ -1489,17 +1634,13 @@ static void op_misc_ccf(InstrType *instr) {
       flag_c = flag_c ^ 1;
    }
    flag_n = 0;
-   // TODO: Investigate this case
-   flag_f5 = -1;
-   flag_f3 = -1;
-   //if (reg_a >= 0) {
-   //   flag_f5 = (reg_a >> 5) & 1;
-   //   flag_f3 = (reg_a >> 3) & 1;
-   //} else {
-   //   flag_f5 = -1;
-   //   flag_f3 = -1;
-   //}
+   scf_ccf_set_f5_f3_flags();
+#ifdef DEBUG_SCF_CCF
+   tmp_op = 0;
+#endif
    update_pc();
+   // Update undocumented Q register
+   flags_updated();
 }
 
 // ===================================================================
@@ -1517,6 +1658,8 @@ static void op_ex_af(InstrType *instr) {
    swap(&flag_n,  &alt_flag_n);
    swap(&flag_c,  &alt_flag_c);
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_exx(InstrType *instr) {
@@ -1527,12 +1670,16 @@ static void op_exx(InstrType *instr) {
    swap(&reg_h,   &alt_reg_h);
    swap(&reg_l,   &alt_reg_l);
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 };
 
 static void op_ex_de_hl(InstrType *instr) {
    swap(&reg_d,   &reg_h);
    swap(&reg_e,   &reg_l);
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_ex_tos_hl(InstrType *instr) {
@@ -1547,6 +1694,8 @@ static void op_ex_tos_hl(InstrType *instr) {
    // Update undocumented memptr register
    update_memptr(arg_read);
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 // ===================================================================
@@ -1560,6 +1709,8 @@ static void op_load_a_i(InstrType *instr) {
    flag_n = 0;
    flag_pv = reg_iff2;
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_load_a_r(InstrType *instr) {
@@ -1569,22 +1720,30 @@ static void op_load_a_r(InstrType *instr) {
    flag_n = 0;
    flag_pv = reg_iff2;
    update_pc();
+   // Update undocumented Q register
+   flags_updated();
 }
 
 static void op_load_i_a(InstrType *instr) {
    reg_i = reg_a;
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_load_r_a(InstrType *instr) {
    reg_r = reg_a;
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_load_sp_hl(InstrType *instr) {
    int rr_id = get_hl_or_idx_id();
    reg_sp = read_reg_pair1(rr_id);
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_load_reg8(InstrType *instr) {
@@ -1609,6 +1768,8 @@ static void op_load_reg8(InstrType *instr) {
    if ((prefix == 0xdd || prefix == 0xfd) && (dst_id == ID_MEMORY || src_id == ID_MEMORY)) {
       update_memptr_idx_disp();
    }
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_load_idx_disp(InstrType *instr) {
@@ -1618,6 +1779,8 @@ static void op_load_idx_disp(InstrType *instr) {
    update_pc();
    // Update undocumented memptr register
    update_memptr_idx_disp();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_load_imm8(InstrType *instr) {
@@ -1632,12 +1795,16 @@ static void op_load_imm8(InstrType *instr) {
       *reg = arg_imm;
    }
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_load_imm16(InstrType *instr) {
    int reg_id = get_rr_id();
    write_reg_pair1(reg_id, arg_imm);
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 
@@ -1648,6 +1815,8 @@ static void op_load_a(InstrType *instr) {
    int rr_id = (opcode >> 4) & 3;
    update_memptr_inc(rr_id < 2 ? read_reg_pair1(rr_id) : arg_imm);
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_store_a(InstrType *instr) {
@@ -1660,6 +1829,8 @@ static void op_store_a(InstrType *instr) {
    int rr_id = (opcode >> 4) & 3;
    update_memptr_inc_split(reg_a, rr_id < 2 ? read_reg_pair1(rr_id) : arg_imm);
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_load_mem16(InstrType *instr) {
@@ -1668,6 +1839,8 @@ static void op_load_mem16(InstrType *instr) {
    // Update undocumented memptr register
    update_memptr_inc(arg_imm);
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 
@@ -1681,6 +1854,8 @@ static void op_store_mem16(InstrType *instr) {
    // Update undocumented memptr register
    update_memptr_inc(arg_imm);
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 
@@ -1696,6 +1871,8 @@ static void op_in_a_nn(InstrType *instr) {
    update_memptr_inc_split(reg_a, arg_imm);
    reg_a = arg_read;
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_out_nn_a(InstrType *instr) {
@@ -1707,6 +1884,8 @@ static void op_out_nn_a(InstrType *instr) {
    }
    reg_a = arg_write;
    update_pc();
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 static void op_in_r_c(InstrType *instr) {
@@ -1725,13 +1904,15 @@ static void op_in_r_c(InstrType *instr) {
    // Update undocumented memptr register
    int bc = read_reg_pair1(ID_RR_BC);
    update_memptr_inc(bc);
+   // Update undocumented Q register
+   flags_updated();
 }
 
 static void op_out_c_r(InstrType *instr) {
    int reg_id = (opcode >> 3) & 7;
    if (reg_id == 6) {
       // reg_id 6 is used for OUT (C),0
-      if (arg_write != 0) {
+      if (arg_write != (cpu == CPU_CMOS ? 0xff : 0)) {
          failflag = 1;
       }
    } else {
@@ -1745,6 +1926,8 @@ static void op_out_c_r(InstrType *instr) {
    // Update undocumented memptr register
    int bc = read_reg_pair1(ID_RR_BC);
    update_memptr_inc(bc);
+   // Update undocumented Q register
+   flags_not_updated();
 }
 
 // ===================================================================
@@ -1841,6 +2024,8 @@ static void op_ind_ini(InstrType *instr) {
    } else if (flag_z < 0) {
       reg_pc = -1;
    }
+   // Update undocumented Q register
+   flags_updated();
 }
 
 static void op_outd_outi(InstrType *instr) {
@@ -1874,6 +2059,8 @@ static void op_outd_outi(InstrType *instr) {
    } else {
       update_memptr_inc(bc);
    }
+   // Update undocumented Q register
+   flags_updated();
 }
 
 // ===================================================================
@@ -1927,6 +2114,8 @@ static void op_ldd_ldi(InstrType *instr) {
    } else if (repeat_op && flag_pv < 0) {
       reg_pc = -1;
    }
+   // Update undocumented Q register
+   flags_updated();
 }
 
 static void op_cpd_cpi(InstrType *instr) {
@@ -1980,6 +2169,8 @@ static void op_cpd_cpi(InstrType *instr) {
    } else if (repeat_op && !(flag_pv == 1 || flag_z == 0)) {
       reg_pc = -1;
    }
+   // Update undocumented Q register
+   flags_updated();
 }
 
 // ===================================================================
@@ -2151,6 +2342,21 @@ static void op_bit(InstrType *instr) {
    // Update undocumented memptr register if (ix+disp) addressing used
    if (prefix == 0xddcb || prefix == 0xfdcb || ((prefix == 0xdd || prefix == 0xfd) && reg_id == ID_MEMORY)) {
       update_memptr_idx_disp();
+   }
+   // Update undocumented Q register
+   switch (major_op) {
+   case 0:
+      // Rotate / Shift
+   case 1:
+      // BIT
+      flags_updated();
+      break;
+   case 2:
+      // RES no effect on flags
+   case 3:
+      // SET no effect on flags
+      flags_not_updated();
+      break;
    }
 }
 

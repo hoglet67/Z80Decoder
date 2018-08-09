@@ -9,6 +9,11 @@
 #define FAIL_NOT_IMPLEMENTED      2
 #define FAIL_IMPLEMENTATION_ERROR 3
 
+#define CPU_DEFAULT               0
+#define CPU_NMOS_ZILOG            1
+#define CPU_NMOS_NEC              2
+#define CPU_CMOS                  3
+
 typedef enum {
    TYPE_0,   // no params
    TYPE_1,   // {arg_reg}
@@ -38,7 +43,7 @@ extern InstrType z80_interrupt_nmi;
 InstrType *table_by_prefix(int prefix);
 char *reg_by_prefix(int prefix);
 char *z80_get_state(int verbosity);
-void z80_init();
+void z80_init(int cpu_type);
 void z80_reset();
 int z80_get_pc();
 void z80_increment_r();

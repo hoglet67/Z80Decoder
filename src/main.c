@@ -27,6 +27,14 @@ int do_emulate = 0;
 // Argp processing
 // ====================================================================
 
+const char *cpu_names[] = {
+   "default",
+   "nmos_zilog",
+   "nmos_nec",
+   "cmos",
+   0
+};
+
 const char *argp_program_version = "decodez80 0.1";
 
 const char *argp_program_bug_address = "<dave@hoglet.com>";
@@ -55,6 +63,7 @@ static struct argp_option options[] = {
    { "instruction",  'i',        0,                   0, "Show instruction."},
    { "state",        's',  "LEVEL", OPTION_ARG_OPTIONAL, "Show register/flag state."},
    { "cycles",       'y',        0,                   0, "Show number of bus cycles."},
+   { "cpu",          'c',    "CPU",                   0, "Enable cpu specific behaviour"},
    { 0 }
 };
 
@@ -74,10 +83,12 @@ struct arguments {
    int show_instruction;
    int show_state;
    int show_cycles;
+   int cpu;
    int debug;
 } arguments;
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
+   int i;
    struct arguments *arguments = state->input;
 
    switch (key) {
@@ -138,6 +149,17 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
       } else {
          arguments->idx_phi = -1;
       }
+      break;
+   case 'c':
+      i = 0;
+      while (cpu_names[i]) {
+         if (strcasecmp(arg, cpu_names[i]) == 0) {
+            arguments->cpu = i;
+            return 0;
+         }
+         i++;
+      }
+      argp_error(state, "unsupported cpu type");
       break;
    case 'd':
       arguments->debug = atoi(arg);
@@ -923,7 +945,7 @@ void decode(FILE *stream) {
    int num;
    uint16_t sample;
 
-   z80_init();
+   z80_init(arguments.cpu);
 
    while ((num = fread(buffer, sizeof(uint16_t), READ_BUFSIZE, stream)) > 0) {
 
@@ -972,6 +994,7 @@ int main(int argc, char *argv[]) {
    arguments.show_instruction = 0;
    arguments.show_state       = 0;
    arguments.show_cycles      = 0;
+   arguments.cpu              = CPU_DEFAULT;
    arguments.debug            = 0;
 
    argp_parse(&argp, argc, argv, 0, 0, &arguments);

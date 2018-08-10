@@ -278,6 +278,10 @@ int arg_read           = 0;
 int arg_write          = 0;
 int failflag           = FAIL_NONE;
 int instr_len          = 0;
+int t_states           = 0;
+int t_cycle            = 0;
+int m_cycle            = 0;
+
 InstrType *instruction = NULL;
 
 static int instr_bytes[MAX_INSTR_LEN];
@@ -372,6 +376,10 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
          instr_bytes[instr_len++] = data;
          // Increment the refresh address register for the first prefix byte
          z80_increment_r();
+         // Setup the t states for a first prefix byte
+         t_states = C_PREFIX1;
+         m_cycle = 1;
+         t_cycle = 1;
          break;
       } else if ((prefix == 0xDD || prefix == 0xFD) && (data == 0xCB)) {
          // Process any second prefix byte
@@ -381,6 +389,10 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
          z80_increment_r();
          // 0xDDCB or 0xFDCB is followed by a mandatory displacement
          state = S_PREDIS;
+         // Setup the t states for a second prefix byte
+         t_states = C_PREFIX2;
+         m_cycle = 1;
+         t_cycle = 1;
          break;
       } else {
          // Decode the prefix/opcode normally
@@ -394,11 +406,33 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
       if (prefix != 0xDDCB && prefix != 0xFDCB) {
          z80_increment_r();
       }
-      // Undefined opcodes in blocks 0xDD and 0xFD act like the unprefixed opcode
-      if ((prefix == 0xDD || prefix == 0xFD) && (instruction->want_dis < 0)) {
-         InstrType *table = table_by_prefix(0);
-         instruction = &table[opcode];
+      // Strip the already processed prefix bytes off the T states
+      t_states = instruction->t_states;
+      switch (prefix) {
+      case 0x00:
+         m_cycle = 1;
+         break;
+      case 0xCB:
+      case 0xED:
+         t_states <<= 4;
+         break;
+      case 0xDD:
+      case 0xFD:
+         // Undefined opcodes in blocks 0xDD and 0xFD act like the unprefixed opcode
+         if (instruction->want_dis < 0) {
+            InstrType *table = table_by_prefix(0);
+            instruction = &table[opcode];
+            t_states = instruction->t_states;
+         } else  {
+            t_states <<= 4;
+         }
+         break;
+      case 0xDDCB:
+      case 0xFDCB:
+         t_states <<= 12;
+        break;
       }
+      t_cycle = 1;
       // If we get this far without hitting a break, we are ready to execute an instruction
       want_dis    = instruction->want_dis;
       want_imm    = instruction->want_imm;
@@ -442,6 +476,10 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
       arg_dis = (char) data; // treat as signed
       instr_bytes[instr_len++] = data;
       state = S_OPCODE;
+      // Setup the t states for a first prefix byte
+      t_states = C_PREDIS;
+      m_cycle = 2;
+      t_cycle = 1;
       break;
 
    case S_POSTDIS:
@@ -653,7 +691,6 @@ Z80CycleType get_cycle_type(uint16_t sample) {
 
 void decode_cycle(Z80CycleSummaryType *cycle_q) {
 
-   static int m_cycle = 0;
    static int instr_cycles = 0;
    static int wait_cycles = 0;
    int ret;
@@ -668,19 +705,13 @@ void decode_cycle(Z80CycleSummaryType *cycle_q) {
       if (!(ret & BIT_UNPROCESSED)) {
 
          instr_cycles += cycle_q->instr_cycles;
-         wait_cycles += cycle_q->wait_cycles;
 
          if (arguments.debug > 0) {
-
-            if (cycle_q->cycle == C_FETCH) {
-               m_cycle = 1;
-            } else {
-               m_cycle++;
-            }
 
             if (arguments.debug > 1) {
                int end = cycle_q->num_samples;
                for (int i = 0; i < end; i++) {
+
                   uint16_t sample = sample_buffer[(cycle_q->sample_index + i) & (SAMPLE_BUFSIZE - 1)];
                   Z80CycleType cycle = get_cycle_type(sample);
                   int m1   = (sample >> arguments.idx_m1  ) & 1;
@@ -692,16 +723,39 @@ void decode_cycle(Z80CycleSummaryType *cycle_q) {
                   int rst  = (sample >> arguments.idx_rst ) & 1;
                   int phi  = (sample >> arguments.idx_phi ) & 1;
                   int data = (sample >> arguments.idx_data) & 255;
-                  printf("M%d %6s %d %d %d %d %d %d %d %d %02x ",
-                         m_cycle, cycle_names[cycle],
+
+                  printf("M%d T%d %6s %d %d %d %d %d %d %d %d %02x ",
+                         m_cycle,
+                         t_cycle,
+                         cycle_names[cycle],
                          m1, rd, wr, mreq, iorq, wait, rst, phi, data);
+
+                  if (t_states == 0) {
+                     printf(" (error: extra cycle)");
+                  } else {
+                     if (t_cycle == 2 && wait == 0) {
+                        wait_cycles ++;
+                     } else {
+                        // Increment the t_cycle/m_cycle count counts
+                        t_cycle++;
+                        if (t_cycle > (t_states >> 28)) {
+                           t_states <<= 4;
+                           t_cycle = 1;
+                           m_cycle++;
+                        }
+                     }
+                  }
+
                   if (i < end - 1) {
                      printf("\n");
                   }
+
                }
             } else {
-               printf("M%d %6s %02x %2d/%2d",
-                      m_cycle, cycle_names[cycle_q->cycle],
+               // TODO: counts wait states like this is approximate
+               wait_cycles += cycle_q->wait_cycles;
+               printf("%6s %02x %2d/%2d",
+                      cycle_names[cycle_q->cycle],
                       cycle_q->data, cycle_q->instr_cycles, cycle_q->wait_cycles);
             }
 

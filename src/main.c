@@ -278,9 +278,11 @@ int arg_read           = 0;
 int arg_write          = 0;
 int failflag           = FAIL_NONE;
 int instr_len          = 0;
+int conditional        = False;
 int t_states           = 0;
 int t_cycle            = 0;
 int m_cycle            = 0;
+int expected_cycles    = 0;
 
 InstrType *instruction = NULL;
 
@@ -299,6 +301,16 @@ static Z80StateType state;
 // Indicates the end of an instruction execution
 #define BIT_INSTRUCTION 4
 
+// Calculates the expected number of cycles by summingthe t states
+int get_expected_cycles(int t_states) {
+   expected_cycles = 0;
+   while (t_states) {
+      expected_cycles += (t_states >> 28);
+      t_states <<= 4;
+   }
+   return expected_cycles;
+}
+
 int decode_instruction(Z80CycleSummaryType *cycle_q) {
 
    static int want_dis    = 0;
@@ -306,7 +318,6 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
    static int want_read   = 0;
    static int want_write  = 0;
    static int want_wr_be  = False;
-   static int conditional = False;
    static char warning_buffer[80];
 
    int cycle = cycle_q->cycle;
@@ -406,8 +417,10 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
       if (prefix != 0xDDCB && prefix != 0xFDCB) {
          z80_increment_r();
       }
-      // Strip the already processed prefix bytes off the T states
+      // Read the t_states from the instruction
       t_states = instruction->t_states;
+      expected_cycles = get_expected_cycles(t_states);
+      // Strip the cycles for the already processed prefix bytes
       switch (prefix) {
       case 0x00:
          m_cycle = 1;
@@ -423,6 +436,7 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
             InstrType *table = table_by_prefix(0);
             instruction = &table[opcode];
             t_states = instruction->t_states;
+            expected_cycles = 4 + get_expected_cycles(t_states);
          } else  {
             t_states <<= 4;
          }
@@ -724,6 +738,13 @@ void decode_cycle(Z80CycleSummaryType *cycle_q) {
                   int phi  = (sample >> arguments.idx_phi ) & 1;
                   int data = (sample >> arguments.idx_data) & 255;
 
+                  // Infer the presence of wait, by t2 (or t3 in the case of IO) being extended
+                  int wait_cycle = (cycle == C_IORD || cycle == C_IOWR) ? 3 : 2;
+                  if ((t_cycle == wait_cycle + 1) && (wr == 0 || rd == 0)) {
+                     t_cycle--;
+                     wait_cycles++;
+                  }
+
                   printf("M%d T%d %6s %d %d %d %d %d %d %d %d %02x ",
                          m_cycle,
                          t_cycle,
@@ -731,18 +752,14 @@ void decode_cycle(Z80CycleSummaryType *cycle_q) {
                          m1, rd, wr, mreq, iorq, wait, rst, phi, data);
 
                   if (t_states == 0) {
-                     printf(" (error: extra cycle)");
+                     printf(" (extra cycle)");
                   } else {
-                     if (t_cycle == 2 && wait == 0) {
-                        wait_cycles ++;
-                     } else {
-                        // Increment the t_cycle/m_cycle count counts
-                        t_cycle++;
-                        if (t_cycle > (t_states >> 28)) {
-                           t_states <<= 4;
-                           t_cycle = 1;
-                           m_cycle++;
-                        }
+                     // Increment the t_cycle/m_cycle count counts
+                     t_cycle++;
+                     if (t_cycle > (t_states >> 28)) {
+                        t_states <<= 4;
+                        t_cycle = 1;
+                        m_cycle++;
                      }
                   }
 
@@ -752,7 +769,7 @@ void decode_cycle(Z80CycleSummaryType *cycle_q) {
 
                }
             } else {
-               // TODO: counts wait states like this is approximate
+               // TODO: counting wait states like this is approximate
                wait_cycles += cycle_q->wait_cycles;
                printf("%6s %02x %2d/%2d",
                       cycle_names[cycle_q->cycle],
@@ -899,6 +916,20 @@ void decode_cycle(Z80CycleSummaryType *cycle_q) {
                   printf(" : fail");
                }
             }
+            colon = 1;
+         }
+
+         if ((cycle_q + 1)->cycle == C_INTACK) {
+            expected_cycles += 2;
+         }
+
+         if (instr_cycles - wait_cycles < expected_cycles) {
+            if (!conditional) {
+               printf(": warning: too few cycles, expected=%d, actual=%d", expected_cycles, instr_cycles - wait_cycles);
+               colon = 1;
+            }
+         } else if (instr_cycles - wait_cycles > expected_cycles) {
+            printf(": warning: too many cycles, expected=%d, actual=%d", expected_cycles, instr_cycles - wait_cycles);
             colon = 1;
          }
          if (colon) {

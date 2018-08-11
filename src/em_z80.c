@@ -2860,7 +2860,7 @@ InstrType extended_instructions[256] = {
    UNDEFINED1,                                                                   // 0xB5
    UNDEFINED1,                                                                   // 0xB6
    UNDEFINED1,                                                                   // 0xB7
-   {0, 0, 1, 1,  True,  C_44335, TYPE_0, "LDDR",              op_ldd_ldi      }, // 0xB8
+   {0, 0, 1, 1,  True,  C_44355, TYPE_0, "LDDR",              op_ldd_ldi      }, // 0xB8
    {0, 0, 1, 0,  True,  C_44355, TYPE_0, "CPDR",              op_cpd_cpi      }, // 0xB9
    {0, 0, 1, 1,  True,  C_45435, TYPE_0, "INDR",              op_ind_ini      }, // 0xBA
    {0, 0, 1, 1,  True,  C_45435, TYPE_0, "OTDR",              op_outd_outi    }, // 0xBB
@@ -3323,8 +3323,8 @@ InstrType index_instructions[256] = {
    {0, 0, 0, 0, False,     C_44, TYPE_1, "LD %sh,E",          op_load_reg8    }, // 0x63
    {0, 0, 0, 0, False,     C_44, TYPE_2, "LD %sh,%sh",        op_load_reg8    }, // 0x64
    {0, 0, 0, 0, False,     C_44, TYPE_2, "LD %sh,%sl",        op_load_reg8    }, // 0x65
-   {1, 0, 1, 0, False,     C_44, TYPE_5, "LD H,(%s%+d)",      op_load_reg8    }, // 0x66
-   {0, 0, 0, 0, False,  C_44353, TYPE_1, "LD %sh,A",          op_load_reg8    }, // 0x67
+   {1, 0, 1, 0, False,  C_44353, TYPE_5, "LD H,(%s%+d)",      op_load_reg8    }, // 0x66
+   {0, 0, 0, 0, False,     C_44, TYPE_1, "LD %sh,A",          op_load_reg8    }, // 0x67
    {0, 0, 0, 0, False,     C_44, TYPE_1, "LD %sl,B",          op_load_reg8    }, // 0x68
    {0, 0, 0, 0, False,     C_44, TYPE_1, "LD %sl,C",          op_load_reg8    }, // 0x69
    {0, 0, 0, 0, False,     C_44, TYPE_1, "LD %sl,D",          op_load_reg8    }, // 0x6A

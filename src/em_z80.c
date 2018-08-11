@@ -3768,10 +3768,10 @@ InstrType index_bit_instructions[256] = {
 
 
 InstrType z80_interrupt_int =
-{0, 0, 0, -2, False, C_433, TYPE_0, "INT", op_interrupt_int };
+{0, 0, 0, -2, False, C_533, TYPE_0, "INT", op_interrupt_int };
 
 InstrType z80_interrupt_nmi =
-{0, 0, 0, -2, False, C_433, TYPE_0, "NMI", op_interrupt_nmi };
+{0, 0, 0, -2, False, C_533, TYPE_0, "NMI", op_interrupt_nmi };
 
 InstrType *table_by_prefix(int prefix) {
    switch (prefix) {

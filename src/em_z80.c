@@ -2407,7 +2407,7 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 0, False,     C_43, TYPE_8, "LD C,%02Xh",        op_load_imm8    }, // 0x0E
    {0, 0, 0, 0, False,      C_4, TYPE_0, "RRCA",              op_misc_rotate  }, // 0x0F
 
-   {1, 0, 0, 0, False,    C_535, TYPE_7, "DJNZ %s",           op_djnz         }, // 0x10
+   {1, 0, 0, 0,  True,    C_535, TYPE_7, "DJNZ %s",           op_djnz         }, // 0x10
    {0, 2, 0, 0, False,    C_433, TYPE_8, "LD DE,%04Xh",       op_load_imm16   }, // 0x11
    {0, 0, 0, 1, False,     C_43, TYPE_0, "LD (DE),A",         op_store_a      }, // 0x12
    {0, 0, 0, 0, False,      C_6, TYPE_0, "INC DE",            op_inc_rr       }, // 0x13
@@ -2417,14 +2417,14 @@ InstrType main_instructions[256] = {
    {0, 0, 0, 0, False,      C_4, TYPE_0, "RLA",               op_misc_rotate  }, // 0x17
    {1, 0, 0, 0, False,    C_435, TYPE_7, "JR %s",             op_jr           }, // 0x18
    {0, 0, 0, 0, False,    C_443, TYPE_0, "ADD HL,DE",         op_add_hl_rr    }, // 0x19
-   {0, 0, 1, 0, False,    C_433, TYPE_0, "LD A,(DE)",         op_load_a       }, // 0x1A
+   {0, 0, 1, 0, False,     C_43, TYPE_0, "LD A,(DE)",         op_load_a       }, // 0x1A
    {0, 0, 0, 0, False,      C_6, TYPE_0, "DEC DE",            op_dec_rr       }, // 0x1B
    {0, 0, 0, 0, False,      C_4, TYPE_0, "INC E",             op_inc_r        }, // 0x1C
    {0, 0, 0, 0, False,      C_4, TYPE_0, "DEC E",             op_dec_r        }, // 0x1D
    {0, 1, 0, 0, False,     C_43, TYPE_8, "LD E,%02Xh",        op_load_imm8    }, // 0x1E
    {0, 0, 0, 0, False,      C_4, TYPE_0, "RRA",               op_misc_rotate  }, // 0x1F
 
-   {1, 0, 0, 0, False,    C_435, TYPE_7, "JR NZ,%s",          op_jr           }, // 0x20
+   {1, 0, 0, 0,  True,    C_435, TYPE_7, "JR NZ,%s",          op_jr           }, // 0x20
    {0, 2, 0, 0, False,    C_433, TYPE_8, "LD HL,%04Xh",       op_load_imm16   }, // 0x21
    {0, 2, 0, 2, False,  C_43333, TYPE_8, "LD (%04Xh),HL",     op_store_mem16  }, // 0x22
    {0, 0, 0, 0, False,      C_6, TYPE_0, "INC HL",            op_inc_rr       }, // 0x23
@@ -2432,7 +2432,7 @@ InstrType main_instructions[256] = {
    {0, 0, 0, 0, False,      C_4, TYPE_0, "DEC H",             op_dec_r        }, // 0x25
    {0, 1, 0, 0, False,     C_43, TYPE_8, "LD H,%02Xh",        op_load_imm8    }, // 0x26
    {0, 0, 0, 0, False,      C_4, TYPE_0, "DAA",               op_misc_daa     }, // 0x27
-   {1, 0, 0, 0, False,    C_435, TYPE_7, "JR Z,%s",           op_jr           }, // 0x28
+   {1, 0, 0, 0,  True,    C_435, TYPE_7, "JR Z,%s",           op_jr           }, // 0x28
    {0, 0, 0, 0, False,    C_443, TYPE_0, "ADD HL,HL",         op_add_hl_rr    }, // 0x29
    {0, 2, 2, 0, False,  C_43333, TYPE_8, "LD HL,(%04Xh)",     op_load_mem16   }, // 0x2A
    {0, 0, 0, 0, False,      C_6, TYPE_0, "DEC HL",            op_dec_rr       }, // 0x2B
@@ -2441,7 +2441,7 @@ InstrType main_instructions[256] = {
    {0, 1, 0, 0, False,     C_43, TYPE_8, "LD L,%02Xh",        op_load_imm8    }, // 0x2E
    {0, 0, 0, 0, False,      C_4, TYPE_0, "CPL",               op_misc_cpl     }, // 0x2F
 
-   {1, 0, 0, 0, False,    C_435, TYPE_7, "JR NC,%s",          op_jr           }, // 0x30
+   {1, 0, 0, 0,  True,    C_435, TYPE_7, "JR NC,%s",          op_jr           }, // 0x30
    {0, 2, 0, 0, False,    C_433, TYPE_8, "LD SP,%04Xh",       op_load_imm16   }, // 0x31
    {0, 2, 0, 1, False,   C_4333, TYPE_8, "LD (%04Xh),A",      op_store_a      }, // 0x32
    {0, 0, 0, 0, False,      C_6, TYPE_0, "INC SP",            op_inc_rr       }, // 0x33
@@ -2449,7 +2449,7 @@ InstrType main_instructions[256] = {
    {0, 0, 1, 1, False,    C_443, TYPE_0, "DEC (HL)",          op_dec_r        }, // 0x35
    {0, 1, 0, 1, False,    C_433, TYPE_8, "LD (HL),%02Xh",     op_load_imm8    }, // 0x36
    {0, 0, 0, 0, False,      C_4, TYPE_0, "SCF",               op_misc_scf     }, // 0x37
-   {1, 0, 0, 0, False,    C_435, TYPE_7, "JR C,%s",           op_jr           }, // 0x38
+   {1, 0, 0, 0,  True,    C_435, TYPE_7, "JR C,%s",           op_jr           }, // 0x38
    {0, 0, 0, 0, False,    C_443, TYPE_0, "ADD HL,SP",         op_add_hl_rr    }, // 0x39
    {0, 2, 1, 0, False,   C_4333, TYPE_8, "LD A,(%04Xh)",      op_load_a       }, // 0x3A
    {0, 0, 0, 0, False,      C_6, TYPE_0, "DEC SP",            op_dec_rr       }, // 0x3B
@@ -2509,14 +2509,14 @@ InstrType main_instructions[256] = {
    {0, 0, 1, 0, False,     C_43, TYPE_0, "LD L,(HL)",         op_load_reg8    }, // 0x6E
    {0, 0, 0, 0, False,      C_4, TYPE_0, "LD L,A",            op_load_reg8    }, // 0x6F
 
-   {0, 0, 0, 1, False,      C_4, TYPE_0, "LD (HL),B",         op_load_reg8    }, // 0x70
-   {0, 0, 0, 1, False,      C_4, TYPE_0, "LD (HL),C",         op_load_reg8    }, // 0x71
-   {0, 0, 0, 1, False,      C_4, TYPE_0, "LD (HL),D",         op_load_reg8    }, // 0x72
-   {0, 0, 0, 1, False,      C_4, TYPE_0, "LD (HL),E",         op_load_reg8    }, // 0x73
-   {0, 0, 0, 1, False,      C_4, TYPE_0, "LD (HL),H",         op_load_reg8    }, // 0x74
+   {0, 0, 0, 1, False,     C_43, TYPE_0, "LD (HL),B",         op_load_reg8    }, // 0x70
+   {0, 0, 0, 1, False,     C_43, TYPE_0, "LD (HL),C",         op_load_reg8    }, // 0x71
+   {0, 0, 0, 1, False,     C_43, TYPE_0, "LD (HL),D",         op_load_reg8    }, // 0x72
+   {0, 0, 0, 1, False,     C_43, TYPE_0, "LD (HL),E",         op_load_reg8    }, // 0x73
+   {0, 0, 0, 1, False,     C_43, TYPE_0, "LD (HL),H",         op_load_reg8    }, // 0x74
    {0, 0, 0, 1, False,     C_43, TYPE_0, "LD (HL),L",         op_load_reg8    }, // 0x75
    {0, 0, 0, 0, False,      C_4, TYPE_0, "HALT",              op_halt         }, // 0x76
-   {0, 0, 0, 1, False,      C_4, TYPE_0, "LD (HL),A",         op_load_reg8    }, // 0x77
+   {0, 0, 0, 1, False,     C_43, TYPE_0, "LD (HL),A",         op_load_reg8    }, // 0x77
    {0, 0, 0, 0, False,      C_4, TYPE_0, "LD A,B",            op_load_reg8    }, // 0x78
    {0, 0, 0, 0, False,      C_4, TYPE_0, "LD A,C",            op_load_reg8    }, // 0x79
    {0, 0, 0, 0, False,      C_4, TYPE_0, "LD A,D",            op_load_reg8    }, // 0x7A
@@ -2852,18 +2852,18 @@ InstrType extended_instructions[256] = {
    UNDEFINED1,                                                                   // 0xAE
    UNDEFINED1,                                                                   // 0xAF
 
-   {0, 0, 1, 1, False,  C_44355, TYPE_0, "LDIR",              op_ldd_ldi      }, // 0xB0
-   {0, 0, 1, 0, False,  C_44355, TYPE_0, "CPIR",              op_cpd_cpi      }, // 0xB1
-   {0, 0, 1, 1, False,  C_45435, TYPE_0, "INIR",              op_ind_ini      }, // 0xB2
-   {0, 0, 1, 1, False,  C_45435, TYPE_0, "OTIR",              op_outd_outi    }, // 0xB3
+   {0, 0, 1, 1,  True,  C_44355, TYPE_0, "LDIR",              op_ldd_ldi      }, // 0xB0
+   {0, 0, 1, 0,  True,  C_44355, TYPE_0, "CPIR",              op_cpd_cpi      }, // 0xB1
+   {0, 0, 1, 1,  True,  C_45435, TYPE_0, "INIR",              op_ind_ini      }, // 0xB2
+   {0, 0, 1, 1,  True,  C_45435, TYPE_0, "OTIR",              op_outd_outi    }, // 0xB3
    UNDEFINED1,                                                                   // 0xB4
    UNDEFINED1,                                                                   // 0xB5
    UNDEFINED1,                                                                   // 0xB6
    UNDEFINED1,                                                                   // 0xB7
-   {0, 0, 1, 1, False,  C_44335, TYPE_0, "LDDR",              op_ldd_ldi      }, // 0xB8
-   {0, 0, 1, 0, False,  C_44355, TYPE_0, "CPDR",              op_cpd_cpi      }, // 0xB9
-   {0, 0, 1, 1, False,  C_45435, TYPE_0, "INDR",              op_ind_ini      }, // 0xBA
-   {0, 0, 1, 1, False,  C_45435, TYPE_0, "OTDR",              op_outd_outi    }, // 0xBB
+   {0, 0, 1, 1,  True,  C_44335, TYPE_0, "LDDR",              op_ldd_ldi      }, // 0xB8
+   {0, 0, 1, 0,  True,  C_44355, TYPE_0, "CPDR",              op_cpd_cpi      }, // 0xB9
+   {0, 0, 1, 1,  True,  C_45435, TYPE_0, "INDR",              op_ind_ini      }, // 0xBA
+   {0, 0, 1, 1,  True,  C_45435, TYPE_0, "OTDR",              op_outd_outi    }, // 0xBB
    UNDEFINED1,                                                                   // 0xBC
    UNDEFINED1,                                                                   // 0xBD
    UNDEFINED1,                                                                   // 0xBE

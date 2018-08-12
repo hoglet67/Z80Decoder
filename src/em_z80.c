@@ -2101,14 +2101,19 @@ static void op_ldd_ldi(InstrType *instr) {
    } else {
       flag_pv = -1;
    }
-   // If a LDIR/LDDR is interrupted, the state of f5/f3 is currently unknown
-   if (reg_a < 0 || (repeat_op && flag_pv != 0)) {
-      flag_f5 = -1;
-      flag_f3 = -1;
-   } else {
+   // Update the undocumented f5/f3 flags
+   if (repeat_op && flag_pv == 1 && reg_pc >= 0) {
+      // If a LDIR/LDDR is interrupted, the f5/f3 flags come from the current PC
+      flag_f5 = (reg_pc >> 13) & 1;
+      flag_f3 = (reg_pc >> 11) & 1;
+   } else if ((!repeat_op || flag_pv == 0) && reg_a >= 0) {
+      // If a LDI/LDD/LDIR/LDDR ends normally, the f5/f3 flags come from A + data
       int result = reg_a + arg_read;
       flag_f5 = (result >> 1) & 1;
       flag_f3 = (result >> 3) & 1;
+   } else {
+      flag_f5 = -1;
+      flag_f3 = -1;
    }
    // Update undocumented memptr register
    if (repeat_op && flag_pv == 1) {

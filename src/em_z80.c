@@ -2196,6 +2196,11 @@ static void op_bit(InstrType *instr) {
    int minor_op = (opcode >> 3) & 7;
    int operand  = (prefix == 0xcb) ? *reg_ptr[reg_id] : arg_read;
 
+   // Update undocumented memptr register if (ix+disp) addressing used
+   if (prefix == 0xddcb || prefix == 0xfdcb || ((prefix == 0xdd || prefix == 0xfd) && reg_id == ID_MEMORY)) {
+      update_memptr_idx_disp();
+   }
+
    // If the operand is undefined (i.e. a register whose value is unknown)
    // then deal with the flags up front, and exit
    if (operand < 0) {
@@ -2300,20 +2305,8 @@ static void op_bit(InstrType *instr) {
          // BIT
          result = operand & (1 << minor_op);
          set_sign_zero(result);
-         if (prefix == 0xddcb || prefix == 0xfdcb) {
-            // Correct the f5 and f3 flags for BIT N,(IX+D)
-            int rr_id = (prefix == 0xfdcb) ? ID_RR_IY : ID_RR_IX;
-            int reg = read_reg_pair1(rr_id);
-            if (reg >= 0) {
-               reg += arg_dis;
-               flag_f5 = (reg >> 13) & 1;
-               flag_f3 = (reg >> 11) & 1;
-            } else {
-               flag_f5 = -1;
-               flag_f3 = -1;
-            }
-         } else if (prefix == 0xcb && reg_id == ID_MEMORY) {
-            // Correct the f5 and f3 flags for BIT N,(HL)
+         if (prefix == 0xddcb || prefix == 0xfdcb || (prefix == 0xcb && reg_id == ID_MEMORY)) {
+            // Correct the f5 and f3 flags for BIT N,(HL) and BIT N,(IX+D)
             if (reg_memptr >= 0) {
                flag_f5 = (reg_memptr >> 13) & 1;
                flag_f3 = (reg_memptr >> 11) & 1;
@@ -2352,10 +2345,6 @@ static void op_bit(InstrType *instr) {
       }
    }
    update_pc();
-   // Update undocumented memptr register if (ix+disp) addressing used
-   if (prefix == 0xddcb || prefix == 0xfdcb || ((prefix == 0xdd || prefix == 0xfd) && reg_id == ID_MEMORY)) {
-      update_memptr_idx_disp();
-   }
    // Update undocumented Q register
    switch (major_op) {
    case 0:

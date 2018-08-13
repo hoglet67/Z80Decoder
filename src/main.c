@@ -354,7 +354,9 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
                  (cycle_q + 2)->cycle == C_MEMWR &&
                  (cycle_q + 3)->cycle == C_FETCH &&
                  z80_get_pc() == (((cycle_q + 1)->data << 8) + (cycle_q + 2)->data) &&
-                 (cycle_q + 3)->data == 0x08) { // EX AF, AF'
+                 (((cycle_q + 3)->data == 0x08) | // EX AF, AF'
+                  ((cycle_q + 3)->data == 0xC3)) // JP
+         ) {
          // Treat an NMI interrupt as just another instruction
          prefix = 0;
          instr_len = 0;

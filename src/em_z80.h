@@ -46,6 +46,7 @@ char *z80_get_state(int verbosity);
 void z80_init(int cpu_type);
 void z80_reset();
 int z80_get_pc();
+int z80_get_im();
 void z80_increment_r();
 int z80_halted();
 

@@ -610,8 +610,15 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
          arg_write |= data << 8;
       }
       ann_dasm = ANN_WOP2;
-      state = S_IDLE;
-      ret |= BIT_INSTRUCTION;
+      // Hard-code a test for IM 2
+      if (instruction == &z80_interrupt_int && z80_get_im() == 2) {
+         want_write = 0;
+         want_read = 2;
+         state = S_ROP1;
+      } else {
+         state = S_IDLE;
+         ret |= BIT_INSTRUCTION;
+      }
       break;
    }
 

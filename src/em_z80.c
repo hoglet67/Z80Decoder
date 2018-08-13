@@ -281,6 +281,10 @@ int z80_get_pc() {
    return reg_pc;
 }
 
+int z80_get_im() {
+   return reg_im;
+}
+
 // ===================================================================
 // Emulation reset / interrupt
 // ===================================================================
@@ -768,10 +772,7 @@ static void op_interrupt_int(InstrType *instr) {
          break;
       case IM_MODE_2:
          // In interrupt mode 2, the new PC is read from a vector table
-         // TODO: we need to extend the instruction decoder to deal with
-         // OPCODE-WOP1-WOP2 followed by optional ROP1-ROP2
-         // reg_pc = arg_read;
-         reg_pc = -1;
+         reg_pc = arg_read;
       }
    }
    // Update undocumented memptr register

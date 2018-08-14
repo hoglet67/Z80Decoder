@@ -6,6 +6,8 @@
 
 #include "em_z80.h"
 
+// #define DUMP_COVERAGE
+
 #define MAX_INSTR_LEN 5
 
 #define DEPTH 4
@@ -409,6 +411,7 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
       conditional = instruction->conditional;
       format      = instruction->format;
       mnemonic    = instruction->mnemonic;
+      instruction->count++;
       if (want_write < 0) {
          want_wr_be = True;
          want_write = -want_write;
@@ -839,7 +842,7 @@ void decode_cycle(Z80CycleSummaryType *cycle_q) {
                instruction->emulate(instruction);
             }
          }
-         if (arguments.show_state) {
+         if (arguments.show_state || failflag) {
             if (colon) {
                printf(" : ");
             }
@@ -982,10 +985,20 @@ void decode(FILE *stream) {
 
 }
 
-
 // ====================================================================
 // Main program entry point
 // ====================================================================
+
+int dump_counts(int prefix) {
+   int total = 0;
+   InstrType *instruction = table_by_prefix(prefix);
+   for (int i = 0; i < 256; i++) {
+      fprintf(stderr, "%02x %02x %10d %s\n",
+             prefix, i, instruction[i].count, instruction[i].mnemonic);
+      total += instruction[i].count;
+   }
+   return total;
+}
 
 int main(int argc, char *argv[]) {
    arguments.idx_data         =  0;
@@ -1024,6 +1037,18 @@ int main(int argc, char *argv[]) {
    }
    decode(stream);
    fclose(stream);
+
+#ifdef DUMP_COVERAGE
+   int total = 0;
+   total += dump_counts(0x00);
+   total += dump_counts(0xCB);
+   total += dump_counts(0xDD);
+   total += dump_counts(0xED);
+   total += dump_counts(0xFD);
+   total += dump_counts(0xDDCB);
+   total += dump_counts(0xFDCB);
+   fprintf(stderr, "Total = %d\n", total);
+#endif
 
    return 0;
 }

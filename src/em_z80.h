@@ -35,6 +35,7 @@ typedef struct Instr {
    FormatType format;
    const char *mnemonic;
    void (*emulate)(struct Instr *);
+   int count;
 } InstrType;
 
 extern InstrType z80_interrupt_int;

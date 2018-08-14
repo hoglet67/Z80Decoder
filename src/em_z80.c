@@ -289,7 +289,7 @@ int z80_get_im() {
 // Emulation reset / interrupt
 // ===================================================================
 
-void z80_init(int cpu_type) {
+void z80_init(int cpu_type, int default_im) {
    cpu = cpu_type;
    // Defined on reset
    reg_pc      = -1;
@@ -306,7 +306,7 @@ void z80_init(int cpu_type) {
    reg_ir      = -1;
    reg_iff1    = -1;
    reg_iff2    = -1;
-   reg_im      = -1;
+   reg_im      = default_im;
    reg_i       = -1;
    reg_r       = -1;
    // Undefined on reset
@@ -743,11 +743,12 @@ static void op_interrupt_int(InstrType *instr) {
    // Disable interrupts
    reg_iff1 = 0;
    reg_iff2 = 0;
-   // Determine the interrupt mode, but fall back to IM1 if reg_im is undefined
-   // (this may well be the case if the capture started after the system booted)
-   // TODO: this fallback should be a command line option
-   int mode = (reg_im >= 0) ? reg_im : IM_MODE_1;
-   if (mode == 0 && ((opcode & 0xC7) != 0xC7)) {
+   // Determine the interrupt mode
+   if (reg_im < 0) {
+      // Interrupt mode undefined, and no default specified:
+      reg_sp = -1;
+      reg_pc = -1;
+   } else if (reg_im == IM_MODE_0 && ((opcode & 0xC7) != 0xC7)) {
       // In interrput mode 0 we only implement the case where the opcode is RST
       failflag = FAIL_NOT_IMPLEMENTED;
       reg_pc = -1;
@@ -761,7 +762,7 @@ static void op_interrupt_int(InstrType *instr) {
       if (reg_sp >= 0) {
          reg_sp = (reg_sp - 2) & 0xffff;
       }
-      switch (mode) {
+      switch (reg_im) {
       case IM_MODE_0:
          // In interrupt mode 0 the vector is executed as if it were a single-byte opcode
          reg_pc = opcode & 0x38;

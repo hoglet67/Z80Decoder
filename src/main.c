@@ -58,6 +58,7 @@ static struct argp_option options[] = {
    { "wait",           7, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for wait"},
    { "rst",            8, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for rst"},
    { "phi",            9, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for phi"},
+   { "im",            10,   "MODE",                   0, "The default interrupt mode"},
    { "debug",        'd',  "LEVEL",                   0, "Sets debug level (0 1 or 2)"},
 // Output options
    { "address",      'a',        0,                   0, "Show address of instruction."},
@@ -87,6 +88,7 @@ struct arguments {
    int show_cycles;
    int cpu;
    int debug;
+   int default_im;
 } arguments;
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
@@ -151,6 +153,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
       } else {
          arguments->idx_phi = -1;
       }
+      break;
+   case  10:
+      arguments->default_im = atoi(arg);
       break;
    case 'c':
       i = 0;
@@ -957,7 +962,7 @@ void decode(FILE *stream) {
    int num;
    uint16_t sample;
 
-   z80_init(arguments.cpu);
+   z80_init(arguments.cpu, arguments.default_im);
 
    while ((num = fread(buffer, sizeof(uint16_t), READ_BUFSIZE, stream)) > 0) {
 
@@ -1018,7 +1023,7 @@ int main(int argc, char *argv[]) {
    arguments.show_cycles      = 0;
    arguments.cpu              = CPU_DEFAULT;
    arguments.debug            = 0;
-
+   arguments.default_im       = -1; // unknoen
    argp_parse(&argp, argc, argv, 0, 0, &arguments);
 
    if (arguments.show_address || arguments.show_state) {

@@ -1876,8 +1876,11 @@ static void op_store_mem16(InstrType *instr) {
 static void op_in_a_nn(InstrType *instr) {
    // Update undocumented memptr register
    // MEMPTR = (A_before_operation << 8) + port + 1
-   // TODO: this might be incorrect for port=0xff
-   update_memptr_inc_split(reg_a, arg_imm);
+   if (reg_a >= 0) {
+      update_memptr_inc((reg_a << 8) | arg_imm);
+   } else {
+      update_memptr(-1);
+   }
    reg_a = arg_read;
    update_pc();
    // Update undocumented Q register

@@ -1985,6 +1985,7 @@ static void block_increment_hl() {
 }
 
 static void block_decrement_b(int io_data, int reg_other) {
+   int repeat_op = opcode & 0x10;
    // Start by setting all the flags to unknown, as they will all be set
    set_flags_undefined();
    // Decrement B and set the flags S Z F5 F3 and N flags
@@ -2000,6 +2001,11 @@ static void block_decrement_b(int io_data, int reg_other) {
    }
    if (reg_other >= 0 && reg_b >= 0) {
       flag_pv = partab[((io_data + reg_other) & 7) ^ reg_b];
+   }
+   // If a INIR/INDR/OUTIR/OUTDR is interrupted, the f5/f3 flags come from the current PC
+   if (repeat_op && flag_z == 0 && reg_pc >= 0) {
+      flag_f5 = (reg_pc >> 13) & 1;
+      flag_f3 = (reg_pc >> 11) & 1;
    }
 }
 

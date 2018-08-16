@@ -130,6 +130,17 @@ static int halted;
 #define ID_R_IYH 10
 #define ID_R_IYL 11
 
+int *flag_ptr[] = {
+   &flag_c,
+   &flag_n,
+   &flag_pv,
+   &flag_f3,
+   &flag_h,
+   &flag_f5,
+   &flag_z,
+   &flag_s
+};
+
 int *reg_ptr[] = {
    &reg_b,
    &reg_c,
@@ -787,7 +798,27 @@ static void op_interrupt_int(InstrType *instr) {
 
 static void op_push(InstrType *instr) {
    int reg_id = get_rr_id();
-   int reg = read_reg_pair2(reg_id);
+   if (reg_id == ID_RR_AF) {
+      int tmp;
+      tmp = (arg_write >> 8) & 0xff;
+      if (reg_a >= 0 && reg_a != tmp) {
+         failflag = FAIL_ERROR;
+      }
+      reg_a = tmp;
+      for (int i = 0; i < 8; i++) {
+         tmp = (arg_write >> i) & 1;
+         if (*flag_ptr[i] >= 0 && *flag_ptr[i] != tmp) {
+            failflag = FAIL_ERROR;
+         }
+         *flag_ptr[i] = tmp;
+      }
+   } else {
+      int reg = read_reg_pair2(reg_id);
+      if (reg >= 0 && reg != arg_write) {
+         failflag = FAIL_ERROR;
+      }
+      write_reg_pair2(reg_id, arg_write);
+   }
 #ifdef DEBUG_SCF_CCF
    // 0xF5 = PUSH AF
    if (tmp_op >= 0 && opcode == 0xf5 && flag_f5 >= 0 && flag_f3 >= 0) {
@@ -808,10 +839,6 @@ static void op_push(InstrType *instr) {
       tmp_op = -1;
    }
 #endif
-   if (reg >= 0 && reg != arg_write) {
-      failflag = FAIL_ERROR;
-   }
-   write_reg_pair2(reg_id, arg_write);
    if (reg_sp >= 0) {
       reg_sp = (reg_sp - 2) & 0xffff;
    }

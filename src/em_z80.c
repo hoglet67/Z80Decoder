@@ -2014,24 +2014,39 @@ static void block_decrement_b(int io_data, int reg_other) {
    int repeat_op = opcode & 0x10;
    // Start by setting all the flags to unknown, as they will all be set
    set_flags_undefined();
-   // Decrement B and set the flags S Z F5 F3 and N flags
+   // Decrement B and set the S Z F5 and F3 flags from B
    if (reg_b >= 0) {
       reg_b = (reg_b - 1) & 0xff;
       set_sign_zero(reg_b);
-      flag_n = (io_data >> 7) & 1;
    }
    // Set the remaining flags
+   flag_n = (io_data >> 7) & 1;
    if (reg_other >= 0) {
       flag_c = ((arg_write + reg_other) > 255);
       flag_h = flag_c;
    }
+   //  INI: reg_other = (C + 1) & 0xFF
+   //  IND: reg_other = (C - 1) & 0xFF
+   // OUTI: reg_other = L
+   // OUTD: reg_other = L
    if (reg_other >= 0 && reg_b >= 0) {
       flag_pv = partab[((io_data + reg_other) & 7) ^ reg_b];
    }
-   // If a INxR/OTxR is interrupted, the f5/f3 flags come from the current PC
+   // If an INxR/OTxR is interrupted, the f5/f3 flags come from the current PC
    if (repeat_op && flag_z == 0 && reg_pc >= 0) {
       flag_f5 = (reg_pc >> 13) & 1;
       flag_f3 = (reg_pc >> 11) & 1;
+   }
+   // If an INxR/OTxR is interrupted, the PV/H flags are set differently
+   if (repeat_op && flag_z == 0) {
+      if (flag_c == 0) {
+         flag_h = 0;
+         flag_pv = partab[((io_data + reg_other) & 0x07) ^ (reg_b & 0xF8)];
+      } else {
+         // TODO: This case is still unclear
+         flag_h = -1;
+         flag_pv = -1;
+      }
    }
 }
 

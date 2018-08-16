@@ -2001,7 +2001,7 @@ static void block_decrement_b(int io_data, int reg_other) {
    if (reg_other >= 0 && reg_b >= 0) {
       flag_pv = partab[((io_data + reg_other) & 7) ^ reg_b];
    }
-   // If a INIR/INDR/OUTIR/OUTDR is interrupted, the f5/f3 flags come from the current PC
+   // If a INxR/OTxR is interrupted, the f5/f3 flags come from the current PC
    if (repeat_op && flag_z == 0 && reg_pc >= 0) {
       flag_f5 = (reg_pc >> 13) & 1;
       flag_f3 = (reg_pc >> 11) & 1;
@@ -2113,11 +2113,11 @@ static void op_ldd_ldi(InstrType *instr) {
    }
    // Update the undocumented f5/f3 flags
    if (repeat_op && flag_pv == 1 && reg_pc >= 0) {
-      // If a LDIR/LDDR is interrupted, the f5/f3 flags come from the current PC
+      // If a LDxR is interrupted, the f5/f3 flags come from the current PC
       flag_f5 = (reg_pc >> 13) & 1;
       flag_f3 = (reg_pc >> 11) & 1;
    } else if ((!repeat_op || flag_pv == 0) && reg_a >= 0) {
-      // If a LDI/LDD/LDIR/LDDR ends normally, the f5/f3 flags come from A + data
+      // If a LDx/LDxR ends normally, the f5/f3 flags come from A + data
       int result = reg_a + arg_read;
       flag_f5 = (result >> 1) & 1;
       flag_f3 = (result >> 3) & 1;
@@ -2173,6 +2173,11 @@ static void op_cpd_cpi(InstrType *instr) {
       flag_pv = reg_b != 0 || reg_c != 0;
    } else {
       flag_pv = -1;
+   }
+   // If a CPxR is interrupted, the f5/f3 flags come from the current PC
+   if (repeat_op && flag_pv == 1 && flag_z == 0 && reg_pc >= 0) {
+      flag_f5 = (reg_pc >> 13) & 1;
+      flag_f3 = (reg_pc >> 11) & 1;
    }
    // Update undocumented memptr register
    if (!repeat_op || flag_pv == 0 || flag_z == 1) {

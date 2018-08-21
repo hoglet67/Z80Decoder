@@ -2050,9 +2050,19 @@ static void block_decrement_b(int io_data, int reg_other) {
             flag_pv = -1;
          }
       } else {
-         // TODO: This case is still unclear
-         flag_h = -1;
-         flag_pv = -1;
+         if (reg_other >= 0 && reg_b >= 0) {
+            flag_pv = partab[((io_data + reg_other) & 0x07) ^ (reg_b & 0xF8)];
+            if (io_data & 0x80) {
+               flag_h = (reg_b & 0x0F) == 0x00;
+               flag_pv ^= (reg_b & 0x03) != 0x02;
+            } else {
+               flag_h = (reg_b & 0x0F) == 0x0F;
+               flag_pv ^= (reg_b & 0x03) != 0x01;
+            }
+         } else {
+            flag_h = -1;
+            flag_pv = -1;
+         }
       }
    }
 }
@@ -2084,7 +2094,7 @@ static void op_ind_ini(InstrType *instr) {
    if (reg_other >= 0) {
       reg_other = (reg_other + (dec_op ? -1 : 1)) & 0xff;
    }
-   block_decrement_b(arg_read, reg_other);
+   block_decrement_b(arg_write, reg_other);
    // TODO: Use cycles to infer termination
    if (!repeat_op || flag_z == 1)  {
       update_pc();
@@ -2167,7 +2177,7 @@ static void op_ldd_ldi(InstrType *instr) {
       flag_f3 = (reg_pc >> 11) & 1;
    } else if ((!repeat_op || flag_pv == 0) && reg_a >= 0) {
       // If a LDx/LDxR ends normally, the f5/f3 flags come from A + data
-      int result = reg_a + arg_read;
+      int result = reg_a + arg_write;
       flag_f5 = (result >> 1) & 1;
       flag_f3 = (result >> 3) & 1;
    } else {

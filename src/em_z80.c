@@ -2042,26 +2042,19 @@ static void block_decrement_b(int io_data, int reg_other) {
          flag_f3 = -1;
       }
       // If an INxR/OTxR is interrupted, the PV/H flags are set differently
-      if (flag_c == 0) {
-         flag_h = 0;
-         if (reg_other >= 0 && reg_b >= 0) {
-            flag_pv = partab[((io_data + reg_other) & 0x07) ^ (reg_b & 0xF8)];
-         } else {
-            flag_pv = -1;
-         }
-      } else {
-         if (reg_other >= 0 && reg_b >= 0) {
-            flag_pv = partab[((io_data + reg_other) & 0x07) ^ (reg_b & 0xF8)];
+      if (reg_other >= 0 && reg_b >= 0) {
+         // if reg_other is known, then so if flag_c
+         if (flag_c) {
             if (io_data & 0x80) {
-               flag_h = (reg_b & 0x0F) == 0x00;
-               flag_pv ^= (reg_b & 0x03) != 0x02;
+               flag_h   = ((reg_b & 0x0F) == 0x00);
+               flag_pv ^= partab[(reg_b - 1) & 0x07] ^ 1;
             } else {
-               flag_h = (reg_b & 0x0F) == 0x0F;
-               flag_pv ^= (reg_b & 0x03) != 0x01;
+               flag_h   = ((reg_b & 0x0F) == 0x0F);
+               flag_pv ^= partab[(reg_b + 1) & 0x07] ^ 1;
             }
          } else {
-            flag_h = -1;
-            flag_pv = -1;
+            // flag_h is 0 in this case, same as before
+            flag_pv ^= partab[reg_b & 0x07] ^ 1;
          }
       }
    }

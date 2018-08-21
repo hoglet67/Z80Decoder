@@ -30,14 +30,21 @@ void main() {
    int fail = 0;
    while (getline(&lineptr, &len, stdin) != -1) {
       char v = 0;
-      sscanf(line, "%x %x %x %c\n", &data, &b, &l, &v);      
+      sscanf(line, "%x %x %x %c\n", &data, &b, &l, &v);
       v_actual = (v == 'V');
       if (v_actual) {
          count_0++;
       } else {
          count_1++;
       }
-      v_expected = partab[(b & 0xf8) | ((data + l) & 0x07)] ^ ((b & 3) != ((data & 0x80) ? 2 : 1));
+      // This is the expression for the non-interrupted case
+      v_expected = partab[b ^ ((data + l) & 0x07)];
+      // This is the additional changes seen in the interrupted case
+      if (data & 0x80) {
+         v_expected ^= partab[(b - 1) & 7] ^ 1;
+      } else {
+         v_expected ^= partab[(b + 1) & 7] ^ 1;
+      }
       if (v_expected != v_actual) {
          printf("fail data=%02x b=%02x l=%02x v_expected=%x v_actual=%x\n",
                 data, b, l, v_expected, v_actual);

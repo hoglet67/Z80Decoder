@@ -843,6 +843,7 @@ void decode_cycle(Z80CycleSummaryType *cycle_q) {
          if (do_emulate) {
             // Run the emulation
             failflag = FAIL_NONE;
+            z80_clear_mem_log();
             if (instruction && instruction->emulate) {
                instruction->emulate(instruction);
             }
@@ -854,12 +855,19 @@ void decode_cycle(Z80CycleSummaryType *cycle_q) {
             // Show the state after executing this instruction
             printf("%s", z80_get_state(arguments.show_state));
             if (failflag > FAIL_NONE) {
-               if (failflag == FAIL_NOT_IMPLEMENTED) {
-                  printf(" : not implemented");
-               } else if (failflag == FAIL_IMPLEMENTATION_ERROR) {
-                  printf(" : implementation error");
-               } else {
+               if (failflag & FAIL_ERROR) {
                   printf(" : fail");
+               }
+               if (failflag & FAIL_MEMORY) {
+                  printf(" : ");
+                  z80_dump_mem_log();
+                  // printf(" : memory modelling");
+               }
+               if (failflag & FAIL_NOT_IMPLEMENTED) {
+                  printf(" : not implemented");
+               }
+               if (failflag & FAIL_IMPLEMENTATION_ERROR) {
+                  printf(" : implementation error");
                }
             }
             colon = 1;
@@ -932,6 +940,12 @@ void decode_sample(int sample) {
    if (cycle_end) {
       cycle_summary.cycle = prev_cycle;
       cycle_summary.data  = prev_data;
+      // Hack to eliminate sampling error - please don't commit!
+      // if (prev_cycle == C_MEMRD || prev_cycle == C_IORD) {
+      //    cycle_summary.data  = data;
+      // } else {
+      //    cycle_summary.data  = prev_data;
+      // }
    }
 
    // At the beginning of the next cycle pass this on to the decoder, so the cycle count is correct

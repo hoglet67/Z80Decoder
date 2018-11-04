@@ -10,7 +10,7 @@
 #include <inttypes.h>
 #include "em_z80.h"
 
-#define UNDEFINED1 {0, 0, 0, 0, False, C_4, TYPE_0, "???", op_nop}
+#define UNDEFINED1 {0, 0, 0, 0, False, C_44, TYPE_0, "???", op_nop}
 
 #define UNDEFINED2 {-1, -1, -1, -1, False, C_4, TYPE_0, "???", NULL}
 
@@ -3544,7 +3544,7 @@ InstrType index_instructions[256] = {
    {0, 0, 0, 0, False,     C_46, TYPE_1, "INC %s",            op_inc_rr       }, // 0x23
    {0, 0, 0, 0, False,     C_44, TYPE_1, "INC %sh",           op_inc_r        }, // 0x24
    {0, 0, 0, 0, False,     C_44, TYPE_1, "DEC %sh",           op_dec_r        }, // 0x25
-   {0, 1, 0, 0, False,    C_433, TYPE_4, "LD %sh,%02Xh",      op_load_imm8    }, // 0x26
+   {0, 1, 0, 0, False,    C_443, TYPE_4, "LD %sh,%02Xh",      op_load_imm8    }, // 0x26
    UNDEFINED2,                                                                   // 0x27
    UNDEFINED2,                                                                   // 0x28
    {0, 0, 0, 0, False,   C_4443, TYPE_2, "ADD %s,%s",         op_add_hl_rr    }, // 0x29
@@ -3552,7 +3552,7 @@ InstrType index_instructions[256] = {
    {0, 0, 0, 0, False,     C_46, TYPE_1, "DEC %s",            op_dec_rr       }, // 0x2B
    {0, 0, 0, 0, False,     C_44, TYPE_1, "INC %sl",           op_inc_r        }, // 0x2C
    {0, 0, 0, 0, False,     C_44, TYPE_1, "DEC %sl",           op_dec_r        }, // 0x2D
-   {0, 1, 0, 0, False,    C_433, TYPE_4, "LD %sl,%02Xh",      op_load_imm8    }, // 0x2E
+   {0, 1, 0, 0, False,    C_443, TYPE_4, "LD %sl,%02Xh",      op_load_imm8    }, // 0x2E
    UNDEFINED2,                                                                   // 0x2F
 
    UNDEFINED2,                                                                   // 0x30

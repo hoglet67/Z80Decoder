@@ -8,7 +8,7 @@
 
 // #define DUMP_COVERAGE
 
-#define MAX_INSTR_LEN 5
+#define MAX_INSTR_LEN 8
 
 #define DEPTH 4
 
@@ -377,6 +377,13 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
          instruction = &table_by_prefix(0)[0];
       } else if ((prefix == 0) && (data == 0xCB || data == 0xED || data == 0xDD || data == 0xFD)) {
          // Process any first prefix byte
+         prefix = data;
+         instr_bytes[instr_len++] = data;
+         // Increment the refresh address register for the first prefix byte
+         z80_increment_r();
+         break;
+      } else if ((prefix == 0xDD || prefix == 0xFD) && (data == 0xDD || data == 0xED || data == 0xFD)) {
+         // Process a repeated prefix, and allow it to just override
          prefix = data;
          instr_bytes[instr_len++] = data;
          // Increment the refresh address register for the first prefix byte

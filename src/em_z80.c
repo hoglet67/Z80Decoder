@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
 #include <inttypes.h>
 #include "em_z80.h"
 
@@ -130,7 +131,18 @@ static int halted;
 #define ID_R_IYH 10
 #define ID_R_IYL 11
 
-int *reg_ptr[] = {
+static int *flag_ptr[] = {
+   &flag_c,
+   &flag_n,
+   &flag_pv,
+   &flag_f3,
+   &flag_h,
+   &flag_f5,
+   &flag_z,
+   &flag_s
+};
+
+static int *reg_ptr[] = {
    &reg_b,
    &reg_c,
    &reg_d,
@@ -145,6 +157,10 @@ int *reg_ptr[] = {
    &reg_iyl
 };
 
+#ifdef MEMORY_MODELLING
+static int memory[0x10000];
+#endif
+
 // ===================================================================
 // Emulation output
 // ===================================================================
@@ -152,7 +168,7 @@ int *reg_ptr[] = {
 static char buffer[1024];
 
 static const char default_state[] = "A=?? F=???????? BC=???? DE=???? HL=???? IX=???? IY=???? SP=????";
-static const char full_state[]    = "A=?? F=???????? BC=???? DE=???? HL=???? IX=???? IY=???? SP=???? : IR=???? IF1=? IF2=? IM=? MZ=????";
+static const char full_state[]    = "A=?? F=???????? BC=???? DE=???? HL=???? IX=???? IY=???? SP=???? : WZ=???? IR=???? IFF=?? IM=?";
 
 #define OFFSET_A    2
 #define OFFSET_F    7
@@ -166,11 +182,10 @@ static const char full_state[]    = "A=?? F=???????? BC=???? DE=???? HL=???? IX=
 #define OFFSET_IY  51
 #define OFFSET_SP  59
 
-#define OFFSET_IR  69
-#define OFFSET_IF1 78
-#define OFFSET_IF2 84
-#define OFFSET_IM  89
-#define OFFSET_MZ  94
+#define OFFSET_WZ  69
+#define OFFSET_IR  77
+#define OFFSET_IFF 86
+#define OFFSET_IM  92
 
 static void write_flag(char *buffer, int flag, int value) {
    *buffer = value ? flag : ' ';
@@ -204,13 +219,13 @@ char *z80_get_state(int verbosity) {
       write_flag(buffer + OFFSET_F + 1, 'Z', flag_z);
    }
    if (flag_f5 >= 0) {
-      write_hex1(buffer + OFFSET_F + 2, flag_f5);
+      write_flag(buffer + OFFSET_F + 2, 'Y', flag_f5);
    }
    if (flag_h >= 0) {
       write_flag(buffer + OFFSET_F + 3, 'H', flag_h);
    }
    if (flag_f3 >= 0) {
-      write_hex1(buffer + OFFSET_F + 4, flag_f3);
+      write_flag(buffer + OFFSET_F + 4, 'X', flag_f3);
    }
    if (flag_pv >= 0) {
       write_flag(buffer + OFFSET_F + 5, 'V', flag_pv);
@@ -255,6 +270,9 @@ char *z80_get_state(int verbosity) {
       write_hex4(buffer + OFFSET_SP, reg_sp);
    }
    if (verbosity > 1) {
+      if (reg_memptr >= 0) {
+         write_hex4(buffer + OFFSET_WZ, reg_memptr);
+      }
       if (reg_i >= 0) {
          write_hex2(buffer + OFFSET_IR, reg_i);
       }
@@ -262,16 +280,13 @@ char *z80_get_state(int verbosity) {
          write_hex2(buffer + OFFSET_IR + 2, reg_r);
       }
       if (reg_iff1 >= 0) {
-         write_hex1(buffer + OFFSET_IF1, reg_iff1);
+         write_hex1(buffer + OFFSET_IFF, reg_iff1);
       }
       if (reg_iff2 >= 0) {
-         write_hex1(buffer + OFFSET_IF2, reg_iff2);
+         write_hex1(buffer + OFFSET_IFF + 1, reg_iff2);
       }
       if (reg_im >= 0) {
          write_hex1(buffer + OFFSET_IM, reg_im);
-      }
-      if (reg_memptr >= 0) {
-         write_hex4(buffer + OFFSET_MZ, reg_memptr);
       }
    }
    return buffer;
@@ -281,11 +296,15 @@ int z80_get_pc() {
    return reg_pc;
 }
 
+int z80_get_im() {
+   return reg_im;
+}
+
 // ===================================================================
 // Emulation reset / interrupt
 // ===================================================================
 
-void z80_init(int cpu_type) {
+void z80_init(int cpu_type, int default_im) {
    cpu = cpu_type;
    // Defined on reset
    reg_pc      = -1;
@@ -302,7 +321,7 @@ void z80_init(int cpu_type) {
    reg_ir      = -1;
    reg_iff1    = -1;
    reg_iff2    = -1;
-   reg_im      = -1;
+   reg_im      = default_im;
    reg_i       = -1;
    reg_r       = -1;
    // Undefined on reset
@@ -334,6 +353,11 @@ void z80_init(int cpu_type) {
    reg_memptr  = -1;
    reg_q       = -1;
    halted      =  0;
+#ifdef MEMORY_MODELLING
+   for (int i = 0; i <= 0xffff; i++) {
+      memory[i] = -1;
+   }
+#endif
 }
 
 void z80_reset() {
@@ -683,7 +707,7 @@ static void update_memptr_idx_disp() {
          reg_memptr = -1;
       }
    } else {
-      failflag = FAIL_IMPLEMENTATION_ERROR;
+      failflag |= FAIL_IMPLEMENTATION_ERROR;
    }
 }
 
@@ -694,6 +718,125 @@ static inline void flags_updated() {
 static inline void flags_not_updated() {
    reg_q = 0;
 }
+
+// ===================================================================
+// Memory Modelling
+// ===================================================================
+
+#ifdef MEMORY_MODELLING
+
+// TODO: allow memory bounds to be passed in as a command line parameter
+
+#define NUM_MEM_LOG_ITEMS 16
+#define MEM_LOG_ITEM_SIZE 256
+
+static char mem_log[NUM_MEM_LOG_ITEMS][MEM_LOG_ITEM_SIZE];
+
+static int mem_log_item = 0;
+
+void z80_clear_mem_log() {
+   mem_log_item = 0;
+}
+
+void z80_dump_mem_log() {
+   if (!mem_log_item) {
+      return;
+   }
+   int first = 1;
+   for (int i = 0; i < mem_log_item; i++) {
+      if (!first) {
+         printf("; ");
+      }
+      printf("%s", mem_log[i]);
+      first = 0;
+   }
+}
+
+static void printm(const char* format, ...) {
+   if (mem_log_item < NUM_MEM_LOG_ITEMS - 1) {
+      va_list args;
+      va_start(args, format);
+      vsprintf(mem_log[mem_log_item++], format, args);
+      va_end(args);
+   } else if (mem_log_item == NUM_MEM_LOG_ITEMS - 1) {
+      sprintf(mem_log[mem_log_item++], "memory log overflow!");
+   }
+}
+
+static void memory_read(int data, int ea) {
+   if (ea >= 0 && ea <= 0xFFFF) {
+#ifdef MEMORY_DEBUG
+      printm("RD %04x=%02x", ea, data);
+      failflag |= FAIL_MEMORY;
+#endif
+      if (memory[ea] >=0 && memory[ea] != data) {
+         printm("memory modelling failed at %04x: expected %02x, actual %02x", ea, memory[ea], data);
+         failflag |= FAIL_MEMORY;
+      }
+      memory[ea] = data;
+   }
+}
+
+static void memory_write(int data, int ea) {
+   if (ea >= 0 && ea <= 0xffff) {
+      if (data < 0 || data > 255) {
+         printm("memory modelling failed at %04x: illegal write of %02x", ea, data);
+         failflag |= FAIL_MEMORY;
+      } else {
+#ifdef MEMORY_DEBUG
+         printm("WR %04x=%02x", ea, data);
+         failflag |= FAIL_MEMORY;
+#endif
+         memory[ea] = data;
+      }
+   }
+}
+
+static void memory_read16(int data, int ea) {
+   if (ea >= 0 && ea < 0xFFFF) {
+      memory_read(data & 0xff, ea);
+      memory_read((data >> 8) & 0xff, (ea + 1) & 0xffff);
+   }
+}
+
+static void memory_write16(int data, int ea) {
+   if (ea >= 0 && ea <= 0xffff) {
+      memory_write(data & 0xff, ea);
+      memory_write((data >> 8) & 0xff, (ea + 1) & 0xffff);
+   }
+}
+
+static int get_hl_or_idxdisp() {
+   int ea;
+   if (prefix == 0xdd || prefix == 0xfd || prefix == 0xddcb || prefix == 0xfdcb) {
+      ea = read_reg_pair1((prefix == 0xfd || prefix == 0xfdcb) ? ID_RR_IY : ID_RR_IX);
+      if (ea >= 0) {
+         ea = (ea + arg_dis) & 0xffff;
+      }
+   } else {
+      ea = read_reg_pair1(ID_RR_HL);
+   }
+   return ea;
+}
+
+static void memory_read_hl_or_idxdisp(int data) {
+   memory_read(data, get_hl_or_idxdisp());
+}
+
+static void memory_write_hl_or_idxdisp(int data) {
+   memory_write(data, get_hl_or_idxdisp());
+}
+
+#else
+
+#define memory_read(...)
+#define memory_write(...)
+#define memory_read16(...)
+#define memory_write16(...)
+#define memory_read_hl_or_idxdisp(...)
+#define memory_write_hl_or_idxdisp(...)
+
+#endif
 
 // ===================================================================
 // Emulated instructions - HALT/NOP/INT/NMI
@@ -720,13 +863,15 @@ static void op_interrupt_nmi(InstrType *instr) {
    // Clear halted
    halted = 0;
    if (reg_pc >= 0 && reg_pc != arg_write) {
-      failflag = FAIL_ERROR;
+      failflag |= FAIL_ERROR;
+   }
+   reg_pc = arg_write;
+   if (reg_sp >= 0) {
+      reg_sp = (reg_sp - 2) & 0xffff;
+      memory_write16(arg_write, reg_sp);
    }
    reg_pc = 0x0066;
    reg_iff1 = 0;
-   if (reg_sp >= 0) {
-      reg_sp = (reg_sp - 2) & 0xffff;
-   }
    // Update undocumented memptr register
    update_memptr(reg_pc);
    // Update undocumented Q register
@@ -739,25 +884,28 @@ static void op_interrupt_int(InstrType *instr) {
    // Disable interrupts
    reg_iff1 = 0;
    reg_iff2 = 0;
-   // Determine the interrupt mode, but fall back to IM1 if reg_im is undefined
-   // (this may well be the case if the capture started after the system booted)
-   // TODO: this fallback should be a command line option
-   int mode = (reg_im >= 0) ? reg_im : IM_MODE_1;
-   if (mode == 0 && ((opcode & 0xC7) != 0xC7)) {
+   // Determine the interrupt mode
+   if (reg_im < 0) {
+      // Interrupt mode undefined, and no default specified:
+      reg_sp = -1;
+      reg_pc = -1;
+   } else if (reg_im == IM_MODE_0 && ((opcode & 0xC7) != 0xC7)) {
       // In interrput mode 0 we only implement the case where the opcode is RST
-      failflag = FAIL_NOT_IMPLEMENTED;
+      failflag |= FAIL_NOT_IMPLEMENTED;
       reg_pc = -1;
       reg_sp = -1;
    } else {
       // Validate the addess of the interrupted instruction
       if (reg_pc >= 0 && reg_pc != arg_write) {
-         failflag = FAIL_ERROR;
+         failflag |= FAIL_ERROR;
       }
+      reg_pc = arg_write;
       // That address is pushed onto the stack
       if (reg_sp >= 0) {
          reg_sp = (reg_sp - 2) & 0xffff;
+         memory_write16(arg_write, reg_sp);
       }
-      switch (mode) {
+      switch (reg_im) {
       case IM_MODE_0:
          // In interrupt mode 0 the vector is executed as if it were a single-byte opcode
          reg_pc = opcode & 0x38;
@@ -768,10 +916,10 @@ static void op_interrupt_int(InstrType *instr) {
          break;
       case IM_MODE_2:
          // In interrupt mode 2, the new PC is read from a vector table
-         // TODO: we need to extend the instruction decoder to deal with
-         // OPCODE-WOP1-WOP2 followed by optional ROP1-ROP2
-         // reg_pc = arg_read;
-         reg_pc = -1;
+         if (reg_i >= 0) {
+            memory_read16(arg_read, (reg_i << 8 | opcode));
+         }
+         reg_pc = arg_read;
       }
    }
    // Update undocumented memptr register
@@ -786,7 +934,27 @@ static void op_interrupt_int(InstrType *instr) {
 
 static void op_push(InstrType *instr) {
    int reg_id = get_rr_id();
-   int reg = read_reg_pair2(reg_id);
+   if (reg_id == ID_RR_AF) {
+      int tmp;
+      tmp = (arg_write >> 8) & 0xff;
+      if (reg_a >= 0 && reg_a != tmp) {
+         failflag |= FAIL_ERROR;
+      }
+      reg_a = tmp;
+      for (int i = 0; i < 8; i++) {
+         tmp = (arg_write >> i) & 1;
+         if (*flag_ptr[i] >= 0 && *flag_ptr[i] != tmp) {
+            failflag |= FAIL_ERROR;
+         }
+         *flag_ptr[i] = tmp;
+      }
+   } else {
+      int reg = read_reg_pair2(reg_id);
+      if (reg >= 0 && reg != arg_write) {
+         failflag |= FAIL_ERROR;
+      }
+      write_reg_pair2(reg_id, arg_write);
+   }
 #ifdef DEBUG_SCF_CCF
    // 0xF5 = PUSH AF
    if (tmp_op >= 0 && opcode == 0xf5 && flag_f5 >= 0 && flag_f3 >= 0) {
@@ -807,12 +975,9 @@ static void op_push(InstrType *instr) {
       tmp_op = -1;
    }
 #endif
-   if (reg >= 0 && reg != arg_write) {
-      failflag = FAIL_ERROR;
-   }
-   write_reg_pair2(reg_id, arg_write);
    if (reg_sp >= 0) {
       reg_sp = (reg_sp - 2) & 0xffff;
+      memory_write16(arg_write, reg_sp);
    }
    update_pc();
    // Update undocumented Q register
@@ -823,6 +988,7 @@ static void op_pop(InstrType *instr) {
    int reg_id = get_rr_id();
    write_reg_pair2(reg_id, arg_read);
    if (reg_sp >= 0) {
+      memory_read16(arg_read , reg_sp);
       reg_sp = (reg_sp + 2) & 0xffff;
    }
    update_pc();
@@ -894,12 +1060,13 @@ static void op_call(InstrType *instr) {
    update_pc();
    // The stacked PC is the next instuction
    if (reg_pc >= 0 && reg_pc != arg_write) {
-      failflag = FAIL_ERROR;
+      failflag |= FAIL_ERROR;
    }
-   reg_pc = arg_imm;
    if (reg_sp >= 0) {
       reg_sp = (reg_sp - 2) & 0xffff;
+      memory_write16(arg_write, reg_sp);
    }
+   reg_pc = arg_imm;
    // Update undocumented memptr register
    update_memptr(arg_imm);
    // Update undocumented Q register
@@ -926,10 +1093,11 @@ static void op_call_cond(InstrType *instr) {
 }
 
 static void op_ret(InstrType *instr) {
-   reg_pc = arg_read;
    if (reg_sp >= 0) {
+      memory_read16(arg_read, reg_sp);
       reg_sp = (reg_sp + 2) & 0xffff;
    }
+   reg_pc = arg_read;
    // Update undocumented memptr register
    update_memptr(reg_pc);
    // Update undocumented Q register
@@ -1043,12 +1211,13 @@ static void op_rst(InstrType *instr) {
    // The stacked PC is the next instuction
    update_pc();
    if (reg_pc >= 0 && reg_pc != arg_write) {
-      failflag = FAIL_ERROR;
+      failflag |= FAIL_ERROR;
    }
-   reg_pc = opcode & 0x38;
    if (reg_sp >= 0) {
       reg_sp = (reg_sp - 2) & 0xffff;
+      memory_write16(arg_write, reg_sp);
    }
+   reg_pc = opcode & 0x38;
    // Update undocumented memptr register
    update_memptr(reg_pc);
    // Update undocumented Q register
@@ -1183,6 +1352,14 @@ static void op_alu(InstrType *instr) {
    }
    // Update undocumented Q register
    flags_updated();
+   // Update memory
+   if (r_id == ID_MEMORY) {
+      if (type == 2) {
+         memory_read_hl_or_idxdisp(arg_read);
+      } else if (type == 3 && reg_pc >= 0) {
+         memory_read(arg_imm, (reg_pc - 1) & 0xffff);
+      }
+   }
 }
 
 static void op_neg(InstrType *instr) {
@@ -1295,7 +1472,7 @@ static void op_inc_r(InstrType *instr) {
       flag_pv = (result == 0x80);
       if (reg_id == ID_MEMORY) {
          if (arg_write != result) {
-            failflag = FAIL_ERROR;
+            failflag |= FAIL_ERROR;
          }
       } else {
          *reg = result;
@@ -1309,6 +1486,11 @@ static void op_inc_r(InstrType *instr) {
    update_pc();
    // Update undocumented Q register
    flags_updated();
+   // Update memory
+   if (reg_id == ID_MEMORY) {
+      memory_read_hl_or_idxdisp(arg_read);
+      memory_write_hl_or_idxdisp(arg_write);
+   }
 }
 
 static void op_inc_rr(InstrType *instr) {
@@ -1331,13 +1513,16 @@ static void op_inc_idx_disp(InstrType *instr) {
    flag_pv = (result == 0x80);
    flag_n  = 0;
    if (arg_write != result) {
-      failflag = FAIL_ERROR;
+      failflag |= FAIL_ERROR;
    }
    update_pc();
    // Update undocumented memptr register
    update_memptr_idx_disp();
    // Update undocumented Q register
    flags_updated();
+   // Update memory
+   memory_read_hl_or_idxdisp(arg_read);
+   memory_write_hl_or_idxdisp(arg_write);
 }
 
 static void op_dec_r(InstrType *instr) {
@@ -1350,7 +1535,7 @@ static void op_dec_r(InstrType *instr) {
       flag_pv = (result == 0x7f);
       if (reg_id == ID_MEMORY) {
          if (arg_write != result) {
-            failflag = FAIL_ERROR;
+            failflag |= FAIL_ERROR;
          }
       } else {
          *reg = result;
@@ -1364,6 +1549,11 @@ static void op_dec_r(InstrType *instr) {
    update_pc();
    // Update undocumented Q register
    flags_updated();
+   // Update memory
+   if (reg_id == ID_MEMORY) {
+      memory_read_hl_or_idxdisp(arg_read);
+      memory_write_hl_or_idxdisp(arg_write);
+   }
 }
 
 static void op_dec_rr(InstrType *instr) {
@@ -1386,13 +1576,16 @@ static void op_dec_idx_disp(InstrType *instr) {
    flag_pv = (result == 0x7f);
    flag_n  = 1;
    if (arg_write != result) {
-      failflag = FAIL_ERROR;
+      failflag |= FAIL_ERROR;
    }
    update_pc();
    // Update undocumented memptr register
    update_memptr_idx_disp();
    // Update undocumented Q register
    flags_updated();
+   // Update memory
+   memory_read_hl_or_idxdisp(arg_read);
+   memory_write_hl_or_idxdisp(arg_write);
 }
 
 // ===================================================================
@@ -1443,11 +1636,17 @@ static void op_rrd(InstrType *instr) {
    }
    flag_h = 0;
    flag_n = 0;
+   update_pc();
    // Update undocumented memptr register
    int hl = read_reg_pair1(ID_RR_HL);
    update_memptr_inc(hl);
    // Update undocumented Q register
    flags_updated();
+   // Update memory
+   if (hl >= 0) {
+      memory_read(arg_read, hl);
+      memory_write(arg_write, hl);
+   }
 }
 
 static void op_rld(InstrType *instr) {
@@ -1461,11 +1660,17 @@ static void op_rld(InstrType *instr) {
    }
    flag_h = 0;
    flag_n = 0;
+   update_pc();
    // Update undocumented memptr register
    int hl = read_reg_pair1(ID_RR_HL);
    update_memptr_inc(hl);
    // Update undocumented Q register
    flags_updated();
+   // Update memory
+   if (hl >= 0) {
+      memory_read(arg_read, hl);
+      memory_write(arg_write, hl);
+   }
 }
 
 static void op_misc_rotate(InstrType *instr) {
@@ -1696,7 +1901,11 @@ static void op_ex_tos_hl(InstrType *instr) {
    int reg_id = get_hl_or_idx_id();
    int reg = read_reg_pair1(reg_id);
    if (reg >= 0 && reg != arg_write) {
-      failflag = FAIL_ERROR;
+      failflag |= FAIL_ERROR;
+   }
+   if (reg_sp >= 0) {
+      memory_read16(arg_read, reg_sp);
+      memory_write16(arg_write, reg_sp);
    }
    write_reg_pair1(reg_id, arg_read);
    // Update undocumented memptr register
@@ -1761,12 +1970,19 @@ static void op_load_reg8(InstrType *instr) {
    if (dst_id != ID_MEMORY && src_id != ID_MEMORY) {
       dst_id = get_r_id(dst_id);
       src_id = get_r_id(src_id);
-  }
+   }
+   // Update memory (before updating the registers)
+   if (src_id == ID_MEMORY) {
+      memory_read_hl_or_idxdisp(arg_read);
+   }
+   if (dst_id == ID_MEMORY) {
+      memory_write_hl_or_idxdisp(arg_write);
+   }
    int *dst = reg_ptr[dst_id];
    int *src = reg_ptr[src_id];
    if (dst_id == ID_MEMORY) {
       if ((*src) >= 0 && (*src) != arg_write) {
-         failflag = FAIL_ERROR;
+         failflag |= FAIL_ERROR;
       }
    } else {
       *dst = *src;
@@ -1782,13 +1998,15 @@ static void op_load_reg8(InstrType *instr) {
 
 static void op_load_idx_disp(InstrType *instr) {
    if (arg_imm != arg_write) {
-      failflag = FAIL_ERROR;
+      failflag |= FAIL_ERROR;
    }
    update_pc();
    // Update undocumented memptr register
    update_memptr_idx_disp();
    // Update undocumented Q register
    flags_not_updated();
+   // Update memory
+   memory_write_hl_or_idxdisp(arg_write);
 }
 
 static void op_load_imm8(InstrType *instr) {
@@ -1797,7 +2015,7 @@ static void op_load_imm8(InstrType *instr) {
    int *reg = reg_ptr[reg_id];
    if (reg_id == ID_MEMORY) {
       if (arg_imm != arg_write) {
-         failflag = FAIL_ERROR;
+         failflag |= FAIL_ERROR;
       }
    } else {
       *reg = arg_imm;
@@ -1805,6 +2023,13 @@ static void op_load_imm8(InstrType *instr) {
    update_pc();
    // Update undocumented Q register
    flags_not_updated();
+   // Update memory
+   if (reg_pc >= 0) {
+      memory_read(arg_imm, (reg_pc - 1) & 0xffff);
+   }
+   if (reg_id == ID_MEMORY) {
+      memory_write_hl_or_idxdisp(arg_write);
+   }
 }
 
 static void op_load_imm16(InstrType *instr) {
@@ -1813,32 +2038,45 @@ static void op_load_imm16(InstrType *instr) {
    update_pc();
    // Update undocumented Q register
    flags_not_updated();
+   // Update memory
+   if (reg_pc >= 0) {
+      memory_read16(arg_imm, (reg_pc - 2) & 0xffff);
+   }
 }
-
 
 static void op_load_a(InstrType *instr) {
    // EA = (BC) or (DE) or (nn)
    reg_a = arg_read;
    // Update undocumented memptr register
    int rr_id = (opcode >> 4) & 3;
-   update_memptr_inc(rr_id < 2 ? read_reg_pair1(rr_id) : arg_imm);
+   int ea = rr_id < 2 ? read_reg_pair1(rr_id) : arg_imm;
+   update_memptr_inc(ea);
    update_pc();
    // Update undocumented Q register
    flags_not_updated();
+   // Update memory
+   if (ea >= 0) {
+      memory_read(arg_read, ea);
+   }
 }
 
 static void op_store_a(InstrType *instr) {
    // EA = (BC) or (DE) or (nn)
    if (reg_a >= 0 && reg_a != arg_write) {
-      failflag = FAIL_ERROR;
+      failflag |= FAIL_ERROR;
    }
    reg_a = arg_write;
    // Update undocumented memptr register
    int rr_id = (opcode >> 4) & 3;
-   update_memptr_inc_split(reg_a, rr_id < 2 ? read_reg_pair1(rr_id) : arg_imm);
+   int ea = rr_id < 2 ? read_reg_pair1(rr_id) : arg_imm;
+   update_memptr_inc_split(reg_a, ea);
    update_pc();
    // Update undocumented Q register
    flags_not_updated();
+   // Update memory
+   if (ea >= 0) {
+      memory_write(arg_write, ea);
+   }
 }
 
 static void op_load_mem16(InstrType *instr) {
@@ -1849,14 +2087,15 @@ static void op_load_mem16(InstrType *instr) {
    update_pc();
    // Update undocumented Q register
    flags_not_updated();
+   // Update memory
+   memory_read16(arg_read, arg_imm);
 }
-
 
 static void op_store_mem16(InstrType *instr) {
    int rr_id = get_rr_id();
    int rr = read_reg_pair1(rr_id);
    if (rr >= 0 && rr != arg_write) {
-      failflag = FAIL_ERROR;
+      failflag |= FAIL_ERROR;
    }
    write_reg_pair1(rr_id, arg_write);
    // Update undocumented memptr register
@@ -1864,19 +2103,22 @@ static void op_store_mem16(InstrType *instr) {
    update_pc();
    // Update undocumented Q register
    flags_not_updated();
+   // Update memory
+   memory_write16(arg_write, arg_imm);
 }
-
 
 // ===================================================================
 // Emulated instructions - In/Out
 // ===================================================================
 
-
 static void op_in_a_nn(InstrType *instr) {
    // Update undocumented memptr register
    // MEMPTR = (A_before_operation << 8) + port + 1
-   // TODO: this might be incorrect for port=0xff
-   update_memptr_inc_split(reg_a, arg_imm);
+   if (reg_a >= 0) {
+      update_memptr_inc((reg_a << 8) | arg_imm);
+   } else {
+      update_memptr(-1);
+   }
    reg_a = arg_read;
    update_pc();
    // Update undocumented Q register
@@ -1888,7 +2130,7 @@ static void op_out_nn_a(InstrType *instr) {
    // MEMPTR_low = (port + 1) & #FF,  MEMPTR_hi = A
    update_memptr_inc_split(reg_a, arg_imm);
    if (reg_a >= 0 && reg_a != arg_write) {
-      failflag = FAIL_ERROR;
+      failflag |= FAIL_ERROR;
    }
    reg_a = arg_write;
    update_pc();
@@ -1921,12 +2163,12 @@ static void op_out_c_r(InstrType *instr) {
    if (reg_id == 6) {
       // reg_id 6 is used for OUT (C),0
       if (arg_write != (cpu == CPU_CMOS ? 0xff : 0)) {
-         failflag = 1;
+         failflag |= 1;
       }
    } else {
       int *reg = reg_ptr[reg_id];
       if ((*reg) >= 0 && (*reg != arg_write)) {
-         failflag = FAIL_ERROR;
+         failflag |= FAIL_ERROR;
       }
       *reg = arg_write;
    }
@@ -1980,21 +2222,52 @@ static void block_increment_hl() {
 }
 
 static void block_decrement_b(int io_data, int reg_other) {
+   int repeat_op = opcode & 0x10;
    // Start by setting all the flags to unknown, as they will all be set
    set_flags_undefined();
-   // Decrement B and set the flags S Z F5 F3 and N flags
+   // Decrement B and set the S Z F5 and F3 flags from B
    if (reg_b >= 0) {
       reg_b = (reg_b - 1) & 0xff;
       set_sign_zero(reg_b);
-      flag_n = (io_data >> 7) & 1;
    }
    // Set the remaining flags
+   flag_n = (io_data >> 7) & 1;
    if (reg_other >= 0) {
       flag_c = ((arg_write + reg_other) > 255);
       flag_h = flag_c;
    }
+   //  INI: reg_other = (C + 1) & 0xFF
+   //  IND: reg_other = (C - 1) & 0xFF
+   // OUTI: reg_other = L
+   // OUTD: reg_other = L
    if (reg_other >= 0 && reg_b >= 0) {
       flag_pv = partab[((io_data + reg_other) & 7) ^ reg_b];
+   }
+   if (repeat_op && flag_z == 0) {
+      // If an INxR/OTxR is interrupted, the f5/f3 flags come from the current PC
+      if (reg_pc >= 0) {
+         flag_f5 = (reg_pc >> 13) & 1;
+         flag_f3 = (reg_pc >> 11) & 1;
+      } else {
+         flag_f5 = -1;
+         flag_f3 = -1;
+      }
+      // If an INxR/OTxR is interrupted, the PV/H flags are set differently
+      if (reg_other >= 0 && reg_b >= 0) {
+         // if reg_other is known, then so if flag_c
+         if (flag_c) {
+            if (io_data & 0x80) {
+               flag_h   = ((reg_b & 0x0F) == 0x00);
+               flag_pv ^= partab[(reg_b - 1) & 0x07] ^ 1;
+            } else {
+               flag_h   = ((reg_b & 0x0F) == 0x0F);
+               flag_pv ^= partab[(reg_b + 1) & 0x07] ^ 1;
+            }
+         } else {
+            // flag_h is 0 in this case, same as before
+            flag_pv ^= partab[reg_b & 0x07] ^ 1;
+         }
+      }
    }
 }
 
@@ -2006,8 +2279,10 @@ static void op_ind_ini(InstrType *instr) {
    int dec_op = opcode & 0x08;
    int repeat_op = opcode & 0x10;
    if (arg_write != arg_read) {
-      failflag = FAIL_ERROR;
+      failflag |= FAIL_ERROR;
    }
+   // Update memory
+   memory_write(arg_write, read_reg_pair1(ID_RR_HL));
    if (dec_op) {
       block_decrement_hl();
    } else {
@@ -2025,7 +2300,7 @@ static void op_ind_ini(InstrType *instr) {
    if (reg_other >= 0) {
       reg_other = (reg_other + (dec_op ? -1 : 1)) & 0xff;
    }
-   block_decrement_b(arg_read, reg_other);
+   block_decrement_b(arg_write, reg_other);
    // TODO: Use cycles to infer termination
    if (!repeat_op || flag_z == 1)  {
       update_pc();
@@ -2044,8 +2319,10 @@ static void op_outd_outi(InstrType *instr) {
    int dec_op = opcode & 0x08;
    int repeat_op = opcode & 0x10;
    if (arg_write != arg_read) {
-      failflag = FAIL_ERROR;
+      failflag |= FAIL_ERROR;
    }
+   // Update memory
+   memory_read(arg_read, read_reg_pair1(ID_RR_HL));
    if (dec_op) {
       block_decrement_hl();
    } else {
@@ -2083,8 +2360,11 @@ static void op_ldd_ldi(InstrType *instr) {
    int dec_op = opcode & 0x08;
    int repeat_op = opcode & 0x10;
    if (arg_write != arg_read) {
-      failflag = FAIL_ERROR;
+      failflag |= FAIL_ERROR;
    }
+   // Update memory
+   memory_read(arg_read, read_reg_pair1(ID_RR_HL));
+   memory_write(arg_write, read_reg_pair1(ID_RR_DE));
    block_decrement_bc();
    if (dec_op) {
       block_decrement_de();
@@ -2101,14 +2381,19 @@ static void op_ldd_ldi(InstrType *instr) {
    } else {
       flag_pv = -1;
    }
-   // If a LDIR/LDDR is interrupted, the state of f5/f3 is currently unknown
-   if (reg_a < 0 || (repeat_op && flag_pv != 0)) {
-      flag_f5 = -1;
-      flag_f3 = -1;
-   } else {
-      int result = reg_a + arg_read;
+   // Update the undocumented f5/f3 flags
+   if (repeat_op && flag_pv == 1 && reg_pc >= 0) {
+      // If a LDxR is interrupted, the f5/f3 flags come from the current PC
+      flag_f5 = (reg_pc >> 13) & 1;
+      flag_f3 = (reg_pc >> 11) & 1;
+   } else if ((!repeat_op || flag_pv == 0) && reg_a >= 0) {
+      // If a LDx/LDxR ends normally, the f5/f3 flags come from A + data
+      int result = reg_a + arg_write;
       flag_f5 = (result >> 1) & 1;
       flag_f3 = (result >> 3) & 1;
+   } else {
+      flag_f5 = -1;
+      flag_f3 = -1;
    }
    // Update undocumented memptr register
    if (repeat_op && flag_pv == 1) {
@@ -2133,6 +2418,8 @@ static void op_cpd_cpi(InstrType *instr) {
    // CPDR  0xB9
    int dec_op = opcode & 0x08;
    int repeat_op = opcode & 0x10;
+   // Update memory
+   memory_read(arg_read, read_reg_pair1(ID_RR_HL));
    block_decrement_bc();
    if (dec_op) {
       block_decrement_hl();
@@ -2158,6 +2445,11 @@ static void op_cpd_cpi(InstrType *instr) {
       flag_pv = reg_b != 0 || reg_c != 0;
    } else {
       flag_pv = -1;
+   }
+   // If a CPxR is interrupted, the f5/f3 flags come from the current PC
+   if (repeat_op && flag_pv == 1 && flag_z == 0 && reg_pc >= 0) {
+      flag_f5 = (reg_pc >> 13) & 1;
+      flag_f3 = (reg_pc >> 11) & 1;
    }
    // Update undocumented memptr register
    if (!repeat_op || flag_pv == 0 || flag_z == 1) {
@@ -2190,6 +2482,19 @@ static void op_bit(InstrType *instr) {
    int major_op = (opcode >> 6) & 3;
    int minor_op = (opcode >> 3) & 7;
    int operand  = (prefix == 0xcb) ? *reg_ptr[reg_id] : arg_read;
+
+   // Update undocumented memptr register if (ix+disp) addressing used
+   if (prefix == 0xddcb || prefix == 0xfdcb) {
+      update_memptr_idx_disp();
+   }
+
+   // Update memory
+   if (prefix == 0xddcb || prefix == 0xfdcb || (prefix == 0xcb && reg_id == ID_MEMORY)) {
+      memory_read_hl_or_idxdisp(arg_read);
+      if (major_op != 1) {
+         memory_write_hl_or_idxdisp(arg_write);
+      }
+   }
 
    // If the operand is undefined (i.e. a register whose value is unknown)
    // then deal with the flags up front, and exit
@@ -2295,20 +2600,8 @@ static void op_bit(InstrType *instr) {
          // BIT
          result = operand & (1 << minor_op);
          set_sign_zero(result);
-         if (prefix == 0xddcb || prefix == 0xfdcb) {
-            // Correct the f5 and f3 flags for BIT N,(IX+D)
-            int rr_id = (prefix == 0xfdcb) ? ID_RR_IY : ID_RR_IX;
-            int reg = read_reg_pair1(rr_id);
-            if (reg >= 0) {
-               reg += arg_dis;
-               flag_f5 = (reg >> 13) & 1;
-               flag_f3 = (reg >> 11) & 1;
-            } else {
-               flag_f5 = -1;
-               flag_f3 = -1;
-            }
-         } else if (prefix == 0xcb && reg_id == ID_MEMORY) {
-            // Correct the f5 and f3 flags for BIT N,(HL)
+         if (prefix == 0xddcb || prefix == 0xfdcb || (prefix == 0xcb && reg_id == ID_MEMORY)) {
+            // Correct the f5 and f3 flags for BIT N,(HL) and BIT N,(IX+D)
             if (reg_memptr >= 0) {
                flag_f5 = (reg_memptr >> 13) & 1;
                flag_f3 = (reg_memptr >> 11) & 1;
@@ -2339,7 +2632,7 @@ static void op_bit(InstrType *instr) {
       if (major_op != 1) {
          if (reg_id == ID_MEMORY) {
             if (arg_write != result) {
-               failflag = FAIL_ERROR;
+               failflag |= FAIL_ERROR;
             }
          } else {
             *reg_ptr[reg_id] = result;
@@ -2347,10 +2640,6 @@ static void op_bit(InstrType *instr) {
       }
    }
    update_pc();
-   // Update undocumented memptr register if (ix+disp) addressing used
-   if (prefix == 0xddcb || prefix == 0xfdcb || ((prefix == 0xdd || prefix == 0xfd) && reg_id == ID_MEMORY)) {
-      update_memptr_idx_disp();
-   }
    // Update undocumented Q register
    switch (major_op) {
    case 0:

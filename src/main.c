@@ -6,7 +6,9 @@
 
 #include "em_z80.h"
 
-#define MAX_INSTR_LEN 5
+// #define DUMP_COVERAGE
+
+#define MAX_INSTR_LEN 8
 
 #define DEPTH 4
 
@@ -56,6 +58,7 @@ static struct argp_option options[] = {
    { "wait",           7, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for wait"},
    { "rst",            8, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for rst"},
    { "phi",            9, "BITNUM", OPTION_ARG_OPTIONAL, "The bit number for phi"},
+   { "im",            10,   "MODE",                   0, "The default interrupt mode"},
    { "debug",        'd',  "LEVEL",                   0, "Sets debug level (0 1 or 2)"},
 // Output options
    { "address",      'a',        0,                   0, "Show address of instruction."},
@@ -85,6 +88,7 @@ struct arguments {
    int show_cycles;
    int cpu;
    int debug;
+   int default_im;
 } arguments;
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
@@ -149,6 +153,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
       } else {
          arguments->idx_phi = -1;
       }
+      break;
+   case  10:
+      arguments->default_im = atoi(arg);
       break;
    case 'c':
       i = 0;
@@ -369,7 +376,9 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
                  (cycle_q + 2)->cycle == C_MEMWR &&
                  (cycle_q + 3)->cycle == C_FETCH &&
                  z80_get_pc() == (((cycle_q + 1)->data << 8) + (cycle_q + 2)->data) &&
-                 (cycle_q + 3)->data == 0x08) { // EX AF, AF'
+                 (((cycle_q + 3)->data == 0x08) | // EX AF, AF'
+                  ((cycle_q + 3)->data == 0xC3)) // JP
+         ) {
          // Treat an NMI interrupt as just another instruction
          prefix = 0;
          instr_len = 0;
@@ -391,6 +400,13 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
          t_states = C_PREFIX1;
          m_cycle = 1;
          t_cycle = 1;
+         break;
+      } else if ((prefix == 0xDD || prefix == 0xFD) && (data == 0xDD || data == 0xED || data == 0xFD)) {
+         // Process a repeated prefix, and allow it to just override
+         prefix = data;
+         instr_bytes[instr_len++] = data;
+         // Increment the refresh address register for the first prefix byte
+         z80_increment_r();
          break;
       } else if ((prefix == 0xDD || prefix == 0xFD) && (data == 0xCB)) {
          // Process any second prefix byte
@@ -455,6 +471,7 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
       conditional = instruction->conditional;
       format      = instruction->format;
       mnemonic    = instruction->mnemonic;
+      instruction->count++;
       if (want_write < 0) {
          want_wr_be = True;
          want_write = -want_write;
@@ -662,8 +679,15 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
          arg_write |= data << 8;
       }
       ann_dasm = ANN_WOP2;
-      state = S_IDLE;
-      ret |= BIT_INSTRUCTION;
+      // Hard-code a test for IM 2
+      if (instruction == &z80_interrupt_int && z80_get_im() == 2) {
+         want_write = 0;
+         want_read = 2;
+         state = S_ROP1;
+      } else {
+         state = S_IDLE;
+         ret |= BIT_INSTRUCTION;
+      }
       break;
    }
 
@@ -897,23 +921,31 @@ void decode_cycle(Z80CycleSummaryType *cycle_q) {
          if (do_emulate) {
             // Run the emulation
             failflag = FAIL_NONE;
+            z80_clear_mem_log();
             if (instruction && instruction->emulate) {
                instruction->emulate(instruction);
             }
          }
-         if (arguments.show_state) {
+         if (arguments.show_state || failflag) {
             if (colon) {
                printf(" : ");
             }
             // Show the state after executing this instruction
             printf("%s", z80_get_state(arguments.show_state));
             if (failflag > FAIL_NONE) {
-               if (failflag == FAIL_NOT_IMPLEMENTED) {
-                  printf(" : not implemented");
-               } else if (failflag == FAIL_IMPLEMENTATION_ERROR) {
-                  printf(" : implementation error");
-               } else {
+               if (failflag & FAIL_ERROR) {
                   printf(" : fail");
+               }
+               if (failflag & FAIL_MEMORY) {
+                  printf(" : ");
+                  z80_dump_mem_log();
+                  // printf(" : memory modelling");
+               }
+               if (failflag & FAIL_NOT_IMPLEMENTED) {
+                  printf(" : not implemented");
+               }
+               if (failflag & FAIL_IMPLEMENTATION_ERROR) {
+                  printf(" : implementation error");
                }
             }
             colon = 1;
@@ -1000,6 +1032,12 @@ void decode_sample(int sample) {
    if (cycle_end) {
       cycle_summary.cycle = prev_cycle;
       cycle_summary.data  = prev_data;
+      // Hack to eliminate sampling error - please don't commit!
+      // if (prev_cycle == C_MEMRD || prev_cycle == C_IORD) {
+      //    cycle_summary.data  = data;
+      // } else {
+      //    cycle_summary.data  = prev_data;
+      // }
    }
 
    // At the beginning of the next cycle pass this on to the decoder, so the cycle count is correct
@@ -1030,7 +1068,7 @@ void decode(FILE *stream) {
    int num;
    uint16_t sample;
 
-   z80_init(arguments.cpu);
+   z80_init(arguments.cpu, arguments.default_im);
 
    while ((num = fread(buffer, sizeof(uint16_t), READ_BUFSIZE, stream)) > 0) {
 
@@ -1058,10 +1096,20 @@ void decode(FILE *stream) {
 
 }
 
-
 // ====================================================================
 // Main program entry point
 // ====================================================================
+
+int dump_counts(int prefix) {
+   int total = 0;
+   InstrType *instruction = table_by_prefix(prefix);
+   for (int i = 0; i < 256; i++) {
+      fprintf(stderr, "%02x %02x %10d %s\n",
+             prefix, i, instruction[i].count, instruction[i].mnemonic);
+      total += instruction[i].count;
+   }
+   return total;
+}
 
 int main(int argc, char *argv[]) {
    arguments.idx_data         =  0;
@@ -1081,7 +1129,7 @@ int main(int argc, char *argv[]) {
    arguments.show_cycles      = 0;
    arguments.cpu              = CPU_DEFAULT;
    arguments.debug            = 0;
-
+   arguments.default_im       = -1; // unknoen
    argp_parse(&argp, argc, argv, 0, 0, &arguments);
 
    if (arguments.show_address || arguments.show_state) {
@@ -1100,6 +1148,18 @@ int main(int argc, char *argv[]) {
    }
    decode(stream);
    fclose(stream);
+
+#ifdef DUMP_COVERAGE
+   int total = 0;
+   total += dump_counts(0x00);
+   total += dump_counts(0xCB);
+   total += dump_counts(0xDD);
+   total += dump_counts(0xED);
+   total += dump_counts(0xFD);
+   total += dump_counts(0xDDCB);
+   total += dump_counts(0xFDCB);
+   fprintf(stderr, "Total = %d\n", total);
+#endif
 
    return 0;
 }

@@ -10,6 +10,8 @@
 #include <inttypes.h>
 #include "em_z80.h"
 
+#define UNDEFINED0 {0, 0, 0, 0, False, C_4, TYPE_0, "???", op_nop}
+
 #define UNDEFINED1 {0, 0, 0, 0, False, C_44, TYPE_0, "???", op_nop}
 
 #define UNDEFINED2 {-1, -1, -1, -1, False, C_4, TYPE_0, "???", NULL}
@@ -2894,7 +2896,7 @@ InstrType main_instructions[256] = {
    {0, 0, 2, 0, True,     C_533, TYPE_0, "RET Z",             op_ret_cond     }, // 0xC8
    {0, 0, 2, 0, False,    C_433, TYPE_0, "RET",               op_ret          }, // 0xC9
    {0, 2, 0, 0, False,    C_433, TYPE_8, "JP Z,%04Xh",        op_jp_cond      }, // 0xCA
-   UNDEFINED1,                                                                   // 0xCB
+   UNDEFINED0,                                                                   // 0xCB
    {0, 2, 0,-2, True,   C_43433, TYPE_8, "CALL Z,%04Xh",      op_call_cond    }, // 0xCC
    {0, 2, 0,-2, False,  C_43433, TYPE_8, "CALL %04Xh",        op_call         }, // 0xCD
    {0, 1, 0, 0, False,     C_43, TYPE_8, "ADC A,%02Xh",       op_alu          }, // 0xCE
@@ -2913,7 +2915,7 @@ InstrType main_instructions[256] = {
    {0, 2, 0, 0, False,    C_433, TYPE_8, "JP C,%04Xh",        op_jp_cond      }, // 0xDA
    {0, 1, 1, 0, False,    C_434, TYPE_8, "IN A,(%02Xh)",      op_in_a_nn      }, // 0xDB
    {0, 2, 0,-2, True,   C_43433, TYPE_8, "CALL C,%04Xh",      op_call_cond    }, // 0xDC
-   UNDEFINED1,                                                                   // 0xDD
+   UNDEFINED0,                                                                   // 0xDD
    {0, 1, 0, 0, False,     C_43, TYPE_8, "SBC A,%02Xh",       op_alu          }, // 0xDE
    {0, 0, 0,-2, False,    C_533, TYPE_0, "RST 18h",           op_rst          }, // 0xDF
 
@@ -2930,7 +2932,7 @@ InstrType main_instructions[256] = {
    {0, 2, 0, 0, False,    C_433, TYPE_8, "JP PE,%04Xh",       op_jp_cond      }, // 0xEA
    {0, 0, 0, 0, False,      C_4, TYPE_0, "EX DE,HL",          op_ex_de_hl     }, // 0xEB
    {0, 2, 0,-2, True,   C_43433, TYPE_8, "CALL PE,%04Xh",     op_call_cond    }, // 0xEC
-   UNDEFINED1,                                                                   // 0xED
+   UNDEFINED0,                                                                   // 0xED
    {0, 1, 0, 0, False,     C_43, TYPE_8, "XOR %02Xh",         op_alu          }, // 0xEE
    {0, 0, 0,-2, False,    C_533, TYPE_0, "RST 28h",           op_rst          }, // 0xEF
 
@@ -2947,7 +2949,7 @@ InstrType main_instructions[256] = {
    {0, 2, 0, 0, False,    C_433, TYPE_8, "JP M,%04Xh",        op_jp_cond      }, // 0xFA
    {0, 0, 0, 0, False,      C_4, TYPE_0, "EI",                op_ei           }, // 0xFB
    {0, 2, 0,-2, True,   C_43433, TYPE_8, "CALL M,%04Xh",      op_call_cond    }, // 0xFC
-   UNDEFINED1,                                                                   // 0xFD
+   UNDEFINED0,                                                                   // 0xFD
    {0, 1, 0, 0, False,     C_43, TYPE_8, "CP %02Xh",          op_alu          }, // 0xFE
    {0, 0, 0,-2, False,    C_533, TYPE_0, "RST 38h",           op_rst          }  // 0xFF
 };

@@ -8,7 +8,7 @@
 
 // #define DUMP_COVERAGE
 
-#define MAX_INSTR_LEN 8
+#define MAX_INSTR_LEN 5
 
 #define DEPTH 4
 
@@ -327,8 +327,9 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
    static int want_wr_be  = False;
    static char warning_buffer[80];
 
-   int cycle = cycle_q->cycle;
-   int data  = cycle_q->data;
+   int cycle  = cycle_q->cycle;
+   int data   = cycle_q->data;
+   int data1  = (cycle_q + 1)->data;
 
    int ret = 0;
 
@@ -390,7 +391,12 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
          instr_len = 0;
          opcode = 0;
          instruction = &table_by_prefix(0)[0];
-      } else if ((prefix == 0) && (data == 0xCB || data == 0xED || data == 0xDD || data == 0xFD)) {
+      } else if (prefix == 0 && (data == 0xDD || data == 0xFD) && (data1 == 0xDD || data1 == 0xED || data1 == 0xFD)) {
+         // Process a redundant prefix as a seperate instruction
+         opcode = data;
+         instr_bytes[instr_len++] = data;
+         instruction = &table_by_prefix(0)[data];
+      } else if (prefix == 0 && (data == 0xCB || data == 0xED || data == 0xDD || data == 0xFD)) {
          // Process any first prefix byte
          prefix = data;
          instr_bytes[instr_len++] = data;
@@ -400,13 +406,6 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
          t_states = C_PREFIX1;
          m_cycle = 1;
          t_cycle = 1;
-         break;
-      } else if ((prefix == 0xDD || prefix == 0xFD) && (data == 0xDD || data == 0xED || data == 0xFD)) {
-         // Process a repeated prefix, and allow it to just override
-         prefix = data;
-         instr_bytes[instr_len++] = data;
-         // Increment the refresh address register for the first prefix byte
-         z80_increment_r();
          break;
       } else if ((prefix == 0xDD || prefix == 0xFD) && (data == 0xCB)) {
          // Process any second prefix byte

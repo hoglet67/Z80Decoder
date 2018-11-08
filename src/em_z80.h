@@ -50,6 +50,7 @@
 #define C_4443    0x44430000
 #define C_45      0x45000000
 #define C_4533    0x45330000
+#define C_45345   0x45345000
 #define C_4543    0x45430000
 #define C_45435   0x45435000
 #define C_46      0x46000000
@@ -92,6 +93,12 @@ void z80_init(int cpu_type, int default_im);
 void z80_reset();
 int z80_get_pc();
 int z80_get_im();
+int z80_get_flag_z();
+int z80_get_flag_c();
+int z80_get_flag_pv();
+int z80_get_flag_s();
+int z80_get_b();
+int z80_get_c();
 void z80_increment_r();
 int z80_halted();
 

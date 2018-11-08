@@ -950,18 +950,112 @@ void decode_cycle(Z80CycleSummaryType *cycle_q) {
             colon = 1;
          }
 
+         // Correct expected cycles for instruction followed by an interrupt
          if ((cycle_q + 1)->cycle == C_INTACK) {
             expected_cycles += 2;
          }
 
-         if (instr_cycles - wait_cycles < expected_cycles) {
-            if (!conditional) {
+         // Correct expected cycles for instruction that has a variable number of cycles
+         int correction = 0; // -1 if correction cannot be determined due to uncertainty
+         if (prefix == 0xED && ((opcode & 0xF4) == 0xB0)) {
+            // block operations: B0/B8 = LDxR, B1/B9=CPxR, B2/BA=INxR, B3/BB=OTxR
+            int z = z80_get_flag_z();
+            int b = z80_get_b();
+            int c = z80_get_c();
+            switch (opcode & 3) {
+            case 0:
+               // for LDxR and CPxR, reduce expected cycles by 5 if BC==0
+               if (b == 0 && c == 0) {
+                  correction = 5;
+               } else if (b < 0 || c < 0) {
+                  correction = -1;
+               }
+               break;
+            case 1:
+               // for CPxR, reduce expected cycle by 5 if BC==0 or Z==1
+               if ((b == 0 && c == 0) || z == 1) {
+                  correction = 5;
+               } else if (z < 0 || b < 0 || c < 0) {
+                  correction = -1;
+               }
+               break;
+            default:
+               // for INxR / OTxR, reduce expected cycles by 5 if B==0
+               if (b == 0) {
+                  correction = 5;
+               } else if (b < 0) {
+                  correction = -1;
+               }
+            }
+
+         } else if (prefix == 0x00 || prefix == 0xDD || prefix == 0xFD) {
+
+            if (opcode == 0x10) {
+               // for DJNZ (special case as it doesn't depend on a flag)
+               int b = z80_get_b();
+               if (b == 0) {
+                  correction = 5;
+               } else if (b < 0) {
+                  correction = -1;
+               }
+
+            } else {
+               int cc = -1;
+               // Speculatively set correction; it might be cleared again below
+               if ((opcode & 0xC7) == 0xC0) {
+                  // RET CC, reduce by 6 cycles if not taken
+                  correction = 6;
+                  cc = (opcode >> 3) & 7; // NZ Z NC C PO PE P M
+               } else if ((opcode & 0xC7) == 0xC4) {
+                  // for CALL CC,NNNN, reduce by 7 cycles if not taken
+                  correction = 7;
+                  cc = (opcode >> 3) & 7; // NZ Z NC C PO PE P M
+               } else if ((opcode & 0xE7) == 0x20) {
+                  // for JR CC,NN, reduce by 5 cycles if not taken
+                  correction = 5;
+                  cc = (opcode >> 3) & 3; // NZ Z NC C
+               }
+               // If part of the operation execution is conditional on a flag
+               if (cc >= 0) {
+                  int flag;
+                  switch (cc >> 1) {
+                  case 0:
+                     flag = z80_get_flag_z();
+                     break;
+                  case 1:
+                     flag = z80_get_flag_c();
+                     break;
+                  case 2:
+                     flag = z80_get_flag_pv();
+                     break;
+                  case 3:
+                     flag = z80_get_flag_s();
+                     break;
+                  }
+                  if (flag < 0) {
+                     correction = -1;
+                  } else if (flag == (cc & 1)) {
+                     correction = 0;
+                  }
+               }
+            }
+         }
+
+         if (correction < 0) {
+            expected_cycles = -1;
+         } else {
+            // Correction might be zero
+            expected_cycles -= correction;
+         }
+
+         if (expected_cycles >= 0) {
+            if (instr_cycles - wait_cycles < expected_cycles) {
                printf(": warning: too few cycles, expected=%d, actual=%d", expected_cycles, instr_cycles - wait_cycles);
                colon = 1;
+            } else if (instr_cycles - wait_cycles > expected_cycles) {
+               printf(": warning: too many cycles, expected=%d, actual=%d", expected_cycles, instr_cycles - wait_cycles);
+               colon = 1;
             }
-         } else if (instr_cycles - wait_cycles > expected_cycles) {
-            printf(": warning: too many cycles, expected=%d, actual=%d", expected_cycles, instr_cycles - wait_cycles);
-            colon = 1;
          }
          if (colon) {
             printf("\n");

@@ -302,6 +302,30 @@ int z80_get_im() {
    return reg_im;
 }
 
+int z80_get_flag_z() {
+   return flag_z;
+}
+
+int z80_get_flag_c() {
+   return flag_c;
+}
+
+int z80_get_flag_pv() {
+   return flag_pv;
+}
+
+int z80_get_flag_s() {
+   return flag_s;
+}
+
+int z80_get_b() {
+   return reg_b;
+}
+
+int z80_get_c() {
+   return reg_c;
+}
+
 // ===================================================================
 // Emulation reset / interrupt
 // ===================================================================
@@ -3146,7 +3170,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 1, 1,  True,  C_44355, TYPE_0, "LDIR",              op_ldd_ldi      }, // 0xB0
    {0, 0, 1, 0,  True,  C_44355, TYPE_0, "CPIR",              op_cpd_cpi      }, // 0xB1
    {0, 0, 1, 1,  True,  C_45435, TYPE_0, "INIR",              op_ind_ini      }, // 0xB2
-   {0, 0, 1, 1,  True,  C_45435, TYPE_0, "OTIR",              op_outd_outi    }, // 0xB3
+   {0, 0, 1, 1,  True,  C_45345, TYPE_0, "OTIR",              op_outd_outi    }, // 0xB3
    UNDEFINED1,                                                                   // 0xB4
    UNDEFINED1,                                                                   // 0xB5
    UNDEFINED1,                                                                   // 0xB6
@@ -3154,7 +3178,7 @@ InstrType extended_instructions[256] = {
    {0, 0, 1, 1,  True,  C_44355, TYPE_0, "LDDR",              op_ldd_ldi      }, // 0xB8
    {0, 0, 1, 0,  True,  C_44355, TYPE_0, "CPDR",              op_cpd_cpi      }, // 0xB9
    {0, 0, 1, 1,  True,  C_45435, TYPE_0, "INDR",              op_ind_ini      }, // 0xBA
-   {0, 0, 1, 1,  True,  C_45435, TYPE_0, "OTDR",              op_outd_outi    }, // 0xBB
+   {0, 0, 1, 1,  True,  C_45345, TYPE_0, "OTDR",              op_outd_outi    }, // 0xBB
    UNDEFINED1,                                                                   // 0xBC
    UNDEFINED1,                                                                   // 0xBD
    UNDEFINED1,                                                                   // 0xBE

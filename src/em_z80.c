@@ -2920,7 +2920,11 @@ InstrType main_instructions[256] = {
    {0, 0, 2, 0, True,  TYPE_0, "RET PO",            op_ret_cond     }, // 0xE0
    {0, 0, 2, 0, False, TYPE_0, "POP HL",            op_pop          }, // 0xE1
    {0, 2, 0, 0, False, TYPE_8, "JP PO,%04Xh",       op_jp_cond      }, // 0xE2
+#ifdef T80
+   {0, 0, 2, 2, False, TYPE_0, "EX (SP),HL",        op_ex_tos_hl    }, // 0xE3
+#else
    {0, 0, 2,-2, False, TYPE_0, "EX (SP),HL",        op_ex_tos_hl    }, // 0xE3
+#endif
    {0, 2, 0,-2, True,  TYPE_8, "CALL PO,%04Xh",     op_call_cond    }, // 0xE4
    {0, 0, 0,-2, False, TYPE_0, "PUSH HL",           op_push         }, // 0xE5
    {0, 1, 0, 0, False, TYPE_8, "AND %02Xh",         op_alu          }, // 0xE6

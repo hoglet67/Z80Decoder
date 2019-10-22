@@ -1,6 +1,9 @@
 #ifndef _INCLUDE_EM_Z80_H
 #define _INCLUDE_EM_Z80_H
 
+// Change bus cycle ordering of EX (SP),HL
+// #define T80
+
 //#define MEMORY_MODELLING
 
 //#define MEMORY_DEBUG

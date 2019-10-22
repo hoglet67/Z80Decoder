@@ -607,10 +607,17 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
       if (want_read < 2) {
          ann_dasm = ANN_ROP1;
       }
+#ifdef T80
+      if (want_write > 0) {
+         state = S_WOP1;
+      } else if (want_read > 1) {
+         state = S_ROP2;
+#else
       if (want_read > 1) {
          state = S_ROP2;
       } else if (want_write > 0) {
          state = S_WOP1;
+#endif
       } else {
          state = S_IDLE;
          ret |= BIT_INSTRUCTION;
@@ -629,7 +636,11 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
       arg_read |= data << 8;
       ann_dasm = ANN_ROP2;
       if (want_write > 0) {
+#ifdef T80
+         state = S_WOP2;
+#else
          state = S_WOP1;
+#endif
       } else {
          state = S_IDLE;
          ret |= BIT_INSTRUCTION;
@@ -654,7 +665,13 @@ int decode_instruction(Z80CycleSummaryType *cycle_q) {
          break;
       }
       arg_write = data;
+#ifdef T80
+      if (want_read > 1) {
+         state = S_ROP2;
+      } else if (want_write > 1) {
+#else
       if (want_write > 1) {
+#endif
          state = S_WOP2;
       } else {
          ann_dasm = ANN_WOP1;

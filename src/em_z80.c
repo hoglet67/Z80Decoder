@@ -2290,11 +2290,6 @@ static void op_ind_ini(InstrType *instr) {
    }
    // Update undocumented memptr register before B is decremented
    int bc = read_reg_pair1(ID_RR_BC);
-   if (dec_op) {
-      update_memptr_dec(bc);
-   } else {
-      update_memptr_inc(bc);
-   }
    // Decrement B and set all the flags
    int reg_other = reg_c;
    if (reg_other >= 0) {
@@ -2304,8 +2299,16 @@ static void op_ind_ini(InstrType *instr) {
    // TODO: Use cycles to infer termination
    if (!repeat_op || flag_z == 1)  {
       update_pc();
-   } else if (flag_z < 0) {
+      if (dec_op) {
+         update_memptr_dec(bc);
+      } else {
+         update_memptr_inc(bc);
+      }
+   } else if (flag_z == 0) {
+      update_memptr_inc(reg_pc);
+   } else {
       reg_pc = -1;
+      update_memptr(-1);
    }
    // Update undocumented Q register
    flags_updated();
@@ -2331,18 +2334,21 @@ static void op_outd_outi(InstrType *instr) {
    // Decrement B and set all the flags
    int reg_other = reg_l;
    block_decrement_b(arg_write, reg_other);
+   // Update undocumented memptr register after B is decremented
+   int bc = read_reg_pair1(ID_RR_BC);
    // TODO: Use cycles to infer termination
    if (!repeat_op || flag_z == 1)  {
       update_pc();
-   } else if (flag_z < 0) {
-      reg_pc = -1;
-   }
-   // Update undocumented memptr register after B is decremented
-   int bc = read_reg_pair1(ID_RR_BC);
-   if (dec_op) {
-      update_memptr_dec(bc);
+      if (dec_op) {
+         update_memptr_dec(bc);
+      } else {
+         update_memptr_inc(bc);
+      }
+   } else if (flag_z == 0) {
+      update_memptr_inc(reg_pc);
    } else {
-      update_memptr_inc(bc);
+      reg_pc = -1;
+      update_memptr(-1);
    }
    // Update undocumented Q register
    flags_updated();

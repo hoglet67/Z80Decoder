@@ -20,7 +20,8 @@
 #define CPU_DEFAULT               0
 #define CPU_NMOS_ZILOG            1
 #define CPU_NMOS_NEC              2
-#define CPU_CMOS                  3
+#define CPU_CMOS_ZILOG            3
+#define CPU_CMOS_ST               4
 
 typedef enum {
    TYPE_0,   // no params

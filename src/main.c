@@ -33,7 +33,8 @@ const char *cpu_names[] = {
    "default",
    "nmos_zilog",
    "nmos_nec",
-   "cmos",
+   "cmos_zilog",
+   "cmos_st",
    0
 };
 

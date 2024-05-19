@@ -1802,6 +1802,7 @@ static void scf_ccf_set_f5_f3_flags() {
    // For some CPU types, we know the exact behaviour
    switch (cpu) {
    case CPU_NMOS_ZILOG:
+   case CPU_CMOS_ZILOG:
       if (reg_a >= 0 && reg_q >= 0) {
          if (reg_q) {
             new_flag_f5 = (reg_a >> 5) & 1;
@@ -1818,7 +1819,7 @@ static void scf_ccf_set_f5_f3_flags() {
          new_flag_f3 = (reg_a >> 3) & 1;
       }
       break;
-   case CPU_CMOS:
+   case CPU_CMOS_ST:
       if (reg_a >= 0 && reg_q >= 0) {
          if (reg_q) {
             new_flag_f5 = (reg_a >> 5) & 1;
@@ -2162,7 +2163,7 @@ static void op_out_c_r(InstrType *instr) {
    int reg_id = (opcode >> 3) & 7;
    if (reg_id == 6) {
       // reg_id 6 is used for OUT (C),0
-      if (arg_write != (cpu == CPU_CMOS ? 0xff : 0)) {
+      if (arg_write != ((cpu == CPU_CMOS_ZILOG || cpu == CPU_CMOS_ST) ? 0xff : 0)) {
          failflag |= 1;
       }
    } else {

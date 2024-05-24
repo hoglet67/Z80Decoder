@@ -3,15 +3,28 @@ MODE 4
 INPUT "CPU NAME ";CPU$
 INPUT "DATE CODE ";DATE$
 INPUT "CLOCK SPEED ";SPEED$
+MODE 4
+VDU 23,1,0;0;0;0;
 FOR F=0 TO 1
   FOR INSTR=0 TO 3
     FOR CF=0 TO 1
       code%=&E000
-      OSWRCH=&FFEE
+      screen%=&5800
+      screen_size%=&2800
+      line%=&140
+      OSWORD=&FFF1
       FOR I%=0 TO 2 STEP 2
         P%=code%
         [OPT I%
         .test
+        \ Clear the screen
+        LD HL,screen%
+        LD DE,screen%+1
+        LD (HL),&00
+        LD BC,screen_size%
+        LDIR
+        \ HL is a pointer into the screen, start at bottom line
+        LD   HL, screen%+screen_size%-line%+7
         \ SET Y/X FLAGS
         LD DE,&0000
         .loop
@@ -30,47 +43,52 @@ FOR F=0 TO 1
         [OPT I%
         \ SAVE FLAGS
         PUSH AF
-        POP HL
-        LD A,L
+        POP BC
+        LD A,C
         ]
         IF F=1 THEN [OPT I%:RRCA:RRCA:]
         [OPT I%
         AND &08
-        JR NZ skip
-        LD A,25
-        CALL OSWRCH
-        LD A,71
-        CALL OSWRCH
-        LD L,D
-        LD H,&00
-        ADD HL,HL
-        ADD HL,HL
-        LD A,L
-        CALL OSWRCH
-        LD A,H
-        CALL OSWRCH
-        LD L,E
-        LD H,&00
-        ADD HL,HL
-        ADD HL,HL
-        LD A,L
-        CALL OSWRCH
-        LD A,H
-        CALL OSWRCH
-        .skip
-        INC E
+        ADD A,&F8  \ result in C
+        RL (HL)    \ shift into screen byte
+        INC D
+        LD A,D
+        AND &07
         JR NZ,loop
+        LD BC,&0008
+        ADD HL,BC
+        DEC D
         INC D
         JR NZ,loop
+        LD BC,&10000-&100-1
+        ADD HL,BC
+        INC E
+        LD A,E
+        AND &07
+        JR NZ,loop
+        LD BC,&10000-line%+8
+        ADD HL,BC
+        DEC E
+        INC E
+        JR NZ,loop
+        LD A,&FF
+        LD HL,block
+        CALL OSWORD
         RET
+        .block
+        DEFB &0D
+        DEFB &01
+        DEFW screen%
+        DEFW 0
+        DEFW screen%
+        DEFW 0
+        DEFW screen_size%
+        DEFB 0
         ]
-        NEXT
-      MODE 4
-      MOVE 0,0
-      MOVE 1023,0
-      PLOT 85,0,1023
-      PLOT 85,1023,1023
-      VDU 23,1,0;0;0;0;
+      NEXT
+      REPEAT
+        CALL test
+      UNTIL INKEY(-1)=0
       MOVE 1100,250
       DRAW 1100,100
       DRAW 1250,100
@@ -95,7 +113,6 @@ FOR F=0 TO 1
       PRINT "GRAPH:"'CHR$(ASC("X")+F);" FLAG"'
       PRINT "X AXIS:"'"A:00-FF"'
       PRINT "Y AXIS:"'"F:00-FF"'
-      CALL test
       REM TAKE A SCREEN SHOT
       *MOTOR 1
       T=TIME
@@ -103,6 +120,6 @@ FOR F=0 TO 1
       *MOTOR 0
       TIME=T
       REPEAT UNTIL TIME>T+100
-      NEXT
     NEXT
   NEXT
+NEXT
